@@ -1,0 +1,403 @@
+"""FastMCP server for the Lobbywatch.ch lobby database.
+
+Phase 1 tools (No-Auth-First, CC BY-SA attributed):
+
+    * get_parlamentarier
+    * list_interessenbindungen
+    * search_parlamentarier_nach_branche
+    * get_lobbygruppe            (live dataIF)
+    * get_ranking
+    * get_transparenzquote
+    * refresh_dump
+
+Anchor demo query (Schulamt / KI-Fachgruppe context):
+
+    "Welche Mitglieder der WBK-N haben Interessenbindungen zu Bildungsverlagen
+    oder privaten Bildungstraegern, und wie ist ihre Transparenz-Bewertung?"
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from mcp.server.fastmcp import FastMCP
+
+from lobbywatch_mcp.client import LobbywatchClient
+from lobbywatch_mcp.models import (
+    BrancheSearchResponse,
+    DumpStatusResponse,
+    Interessenbindung,
+    InteressenbindungenResponse,
+    Lobbygruppe,
+    LobbygruppeResponse,
+    ParlamentarierDetail,
+    ParlamentarierResponse,
+    ParlamentarierSummary,
+    RankingEntry,
+    RankingResponse,
+    TransparenzResponse,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Projection helpers (dump record -> model)
+# ---------------------------------------------------------------------------
+
+
+def _split_kommissionen(record: dict[str, Any]) -> list[str]:
+    raw = record.get("kommissionen_abkuerzung_de") or record.get("kommissionen_abkuerzung") or ""
+    if not raw:
+        return []
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _to_bool(value: Any) -> bool | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ("1", "y", "yes", "true", "ja"):
+            return True
+        if v in ("0", "n", "no", "false", "nein"):
+            return False
+    return None
+
+
+def _ib_to_model(ib: dict[str, Any]) -> Interessenbindung:
+    organisation = ib.get("organisation") or {}
+    return Interessenbindung(
+        id=ib.get("id"),
+        parlamentarier_id=ib.get("parlamentarier_id"),
+        organisation_id=ib.get("organisation_id"),
+        organisation_name=organisation.get("anzeige_name") or organisation.get("name"),
+        branche=(organisation.get("branche") or {}).get("name")
+        if isinstance(organisation.get("branche"), dict)
+        else organisation.get("branche"),
+        art=ib.get("art"),
+        funktion_im_gremium=ib.get("funktion_im_gremium"),
+        deklarationstyp=ib.get("deklarationstyp"),
+        status=ib.get("status"),
+        hauptberuflich=_to_bool(ib.get("hauptberuflich")),
+        behoerden_vertreter=_to_bool(ib.get("behoerden_vertreter")),
+        beschreibung=ib.get("beschreibung"),
+        quelle_url=ib.get("quelle_url"),
+        von=ib.get("von"),
+        bis=ib.get("bis"),
+        aktiv=_to_bool(ib.get("aktiv")),
+    )
+
+
+def _summary_from_record(record: dict[str, Any]) -> ParlamentarierSummary:
+    ibs = record.get("interessenbindungen") or []
+    hauptberuflich_count = sum(1 for ib in ibs if _to_bool(ib.get("hauptberuflich")))
+    return ParlamentarierSummary(
+        id=int(record.get("id") or 0),
+        anzeige_name=record.get("anzeige_name") or "",
+        partei=record.get("partei"),
+        kanton=record.get("kanton"),
+        rat=record.get("rat_de") or record.get("rat"),
+        kommissionen=_split_kommissionen(record),
+        anzahl_interessenbindungen=len(ibs),
+        anzahl_hauptberuflich=hauptberuflich_count,
+        verguetungstransparenz=record.get("verguetungstransparenz_beurteilung"),
+    )
+
+
+def _detail_from_record(record: dict[str, Any]) -> ParlamentarierDetail:
+    summary = _summary_from_record(record)
+    return ParlamentarierDetail(
+        **summary.model_dump(),
+        geburtstag=record.get("geburtstag"),
+        geschlecht=record.get("geschlecht"),
+        beruf=record.get("beruf_de") or record.get("beruf"),
+        im_rat_seit=record.get("im_rat_seit"),
+        homepage=record.get("homepage"),
+        wikipedia=record.get("wikipedia"),
+        interessenbindungen=[_ib_to_model(ib) for ib in (record.get("interessenbindungen") or [])],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Server builder
+# ---------------------------------------------------------------------------
+
+
+def build_server(client: LobbywatchClient | None = None) -> FastMCP:
+    """Construct the FastMCP server with all Phase-1 tools registered."""
+    mcp = FastMCP(
+        name="lobbywatch-mcp",
+        instructions=(
+            "Lobbywatch.ch MCP server — conflicts of interest of Swiss parliamentarians. "
+            "Data is community-researched, updated weekly, and licensed CC BY-SA 4.0. "
+            "Attribution is included in every response."
+        ),
+    )
+    lb = client or LobbywatchClient()
+
+    # -------- parlamentarier --------
+
+    @mcp.tool()
+    async def get_parlamentarier(name_or_id: str) -> dict[str, Any]:
+        """Look up a Swiss federal parliamentarian and return their full profile,
+        including all declared/researched interessenbindungen.
+
+        Args:
+            name_or_id: Either the numeric Lobbywatch ID (as string) or a name.
+                Name matching is fuzzy — partial last names work.
+        """
+        record = await lb.find_parlamentarier(name_or_id)
+        if record is None:
+            return ParlamentarierResponse(
+                provenance="weekly_dump",
+                parlamentarier=None,
+            ).model_dump()
+        return ParlamentarierResponse(
+            provenance="weekly_dump",
+            parlamentarier=_detail_from_record(record),
+        ).model_dump()
+
+    @mcp.tool()
+    async def list_interessenbindungen(
+        name_or_id: str, nur_hauptberuflich: bool = False, nur_aktiv: bool = True
+    ) -> dict[str, Any]:
+        """Return the list of interessenbindungen (conflicts of interest) for one
+        parliamentarian, optionally restricted to full-time or currently-active
+        mandates.
+
+        Args:
+            name_or_id: ID or name (fuzzy).
+            nur_hauptberuflich: If True, only main-occupation mandates.
+            nur_aktiv: If True, drop mandates with an end date (bis) set.
+        """
+        record = await lb.find_parlamentarier(name_or_id)
+        if record is None:
+            return InteressenbindungenResponse(
+                provenance="weekly_dump",
+                parlamentarier_id=-1,
+                count=0,
+            ).model_dump()
+
+        ibs_raw = record.get("interessenbindungen") or []
+        ibs = [_ib_to_model(ib) for ib in ibs_raw]
+        if nur_hauptberuflich:
+            ibs = [ib for ib in ibs if ib.hauptberuflich]
+        if nur_aktiv:
+            ibs = [ib for ib in ibs if ib.aktiv is not False]
+        return InteressenbindungenResponse(
+            provenance="weekly_dump",
+            parlamentarier_id=int(record.get("id") or 0),
+            count=len(ibs),
+            interessenbindungen=ibs,
+        ).model_dump()
+
+    @mcp.tool()
+    async def search_parlamentarier_nach_branche(
+        branche_query: str, kommission: str | None = None, limit: int = 25
+    ) -> dict[str, Any]:
+        """Find parliamentarians with interessenbindungen matching a search term
+        against the linked organisation's name, alias, and (when available)
+        branche field. Optional commission filter.
+
+        Note: the Lobbywatch "essential" dump does not embed a branche taxonomy
+        on each organisation — branche is referenced by id and resolved via the
+        separate interessengruppe table. Version 0.1 therefore performs a
+        substring match against organisation names and the branche field when
+        present. Version 0.2 will add full cross-reference resolution.
+
+        Args:
+            branche_query: Substring match (case-insensitive) against
+                ``organisation.anzeige_name``, ``organisation.name``,
+                ``organisation.branche`` (where present), e.g. "Verlag",
+                "Pharma", "Bank", "Krankenkasse", "Bildung".
+            kommission: Commission abbreviation to restrict the result to,
+                e.g. "WBK-N" for the education commission of the National Council.
+            limit: Max number of {parlamentarier, ib} pairs returned.
+        """
+        q = branche_query.strip().lower()
+        records = await lb.all_parlamentarier()
+        hits: list[dict[str, Any]] = []
+
+        for r in records:
+            if kommission:
+                komm = [k.lower() for k in _split_kommissionen(r)]
+                if kommission.lower() not in komm:
+                    continue
+            for ib in r.get("interessenbindungen") or []:
+                org = ib.get("organisation") or {}
+                haystack_parts: list[str] = []
+                for key in ("anzeige_name", "name", "name_de", "alias_namen_de"):
+                    val = org.get(key)
+                    if isinstance(val, str):
+                        haystack_parts.append(val)
+                branche_field = org.get("branche")
+                if isinstance(branche_field, dict):
+                    n = branche_field.get("name")
+                    if isinstance(n, str):
+                        haystack_parts.append(n)
+                elif isinstance(branche_field, str):
+                    haystack_parts.append(branche_field)
+                # Also match against the denormalised anzeige_name on the IB
+                # itself which includes the organisation name by convention.
+                ib_display = ib.get("anzeige_name")
+                if isinstance(ib_display, str):
+                    haystack_parts.append(ib_display)
+
+                haystack = " | ".join(haystack_parts).lower()
+                if q in haystack:
+                    hits.append(
+                        {
+                            "parlamentarier": _summary_from_record(r).model_dump(),
+                            "interessenbindung": _ib_to_model(ib).model_dump(),
+                        }
+                    )
+                    if len(hits) >= limit:
+                        break
+            if len(hits) >= limit:
+                break
+
+        return BrancheSearchResponse(
+            provenance="weekly_dump",
+            query=branche_query,
+            count=len(hits),
+            treffer=hits,
+        ).model_dump()
+
+    # -------- rankings & statistics --------
+
+    @mcp.tool()
+    async def get_ranking(
+        kriterium: str = "anzahl_interessenbindungen",
+        kommission: str | None = None,
+        partei: str | None = None,
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        """Rank parliamentarians by a criterion.
+
+        Args:
+            kriterium: One of "anzahl_interessenbindungen",
+                "anzahl_hauptberuflich".
+            kommission: Optional commission abbreviation filter (e.g. "WBK-N").
+            partei: Optional party filter (e.g. "SP", "SVP", "Mitte").
+            limit: Top-N to return.
+        """
+        allowed = {"anzahl_interessenbindungen", "anzahl_hauptberuflich"}
+        if kriterium not in allowed:
+            raise ValueError(f"kriterium must be one of {sorted(allowed)}")
+
+        records = await lb.all_parlamentarier()
+        summaries = [_summary_from_record(r) for r in records]
+
+        if kommission:
+            k = kommission.lower()
+            summaries = [s for s in summaries if k in {x.lower() for x in s.kommissionen}]
+        if partei:
+            summaries = [s for s in summaries if (s.partei or "").lower() == partei.lower()]
+
+        summaries.sort(key=lambda s: getattr(s, kriterium), reverse=True)
+        top = summaries[:limit]
+        eintraege = [
+            RankingEntry(
+                rank=i + 1,
+                parlamentarier=s,
+                wert=getattr(s, kriterium),
+                kriterium=kriterium,
+            )
+            for i, s in enumerate(top)
+        ]
+        return RankingResponse(
+            provenance="weekly_dump",
+            kriterium=kriterium,
+            eintraege=eintraege,
+        ).model_dump()
+
+    @mcp.tool()
+    async def get_transparenzquote(kommission: str | None = None) -> dict[str, Any]:
+        """Aggregate the verguetungstransparenz_beurteilung values across all
+        parliamentarians (or a commission subset) and return the distribution.
+
+        Useful to answer: 'How transparent is the education commission on
+        compensation disclosure?'
+        """
+        records = await lb.all_parlamentarier()
+        if kommission:
+            k = kommission.lower()
+            records = [r for r in records if k in {x.lower() for x in _split_kommissionen(r)}]
+
+        buckets: dict[str, int] = {}
+        total = 0
+        for r in records:
+            label = r.get("verguetungstransparenz_beurteilung") or "nicht_bewertet"
+            buckets[label] = buckets.get(label, 0) + 1
+            total += 1
+
+        # Simple "acceptable" proxy: anything that is not "ungenuegend" / "nicht_bewertet".
+        acceptable = sum(
+            v for k, v in buckets.items() if k not in ("ungenuegend", "nicht_bewertet")
+        )
+        quote = (acceptable / total) if total else None
+
+        return TransparenzResponse(
+            provenance="weekly_dump",
+            scope=kommission or "all",
+            total=total,
+            nach_bewertung=buckets,
+            quote_ausreichend=quote,
+        ).model_dump()
+
+    # -------- lobby group lookup (live dataIF) --------
+
+    @mcp.tool()
+    async def get_lobbygruppe(name_or_id: str) -> dict[str, Any]:
+        """Fetch a lobby group (interessengruppe) from the live Lobbywatch
+        dataIF, including its connected organisations and parliamentarians.
+
+        Uses the live REST API since this endpoint returns fresh data.
+        """
+        data = await lb.fetch_lobbygruppe(name_or_id)
+        if data is None:
+            return LobbygruppeResponse(provenance="dataIF_live").model_dump()
+
+        # Normalise the nested payload into a Lobbygruppe model.
+        branche = data.get("branche")
+        branche_name = branche.get("name") if isinstance(branche, dict) else branche
+        model = Lobbygruppe(
+            id=data.get("id"),
+            anzeige_name=data.get("anzeige_name") or data.get("anzeige_name_de"),
+            name=data.get("name") or data.get("name_de"),
+            branche=branche_name,
+            beschreibung=data.get("beschreibung"),
+            wikipedia=data.get("wikipedia"),
+            wikidata_qid=data.get("wikidata_qid"),
+            organisationen=data.get("organisationen") or [],
+            parlamentarier=data.get("parlamentarier") or [],
+        )
+        return LobbygruppeResponse(
+            provenance="dataIF_live",
+            lobbygruppe=model,
+        ).model_dump()
+
+    # -------- cache control --------
+
+    @mcp.tool()
+    async def refresh_dump() -> dict[str, Any]:
+        """Force re-download of the weekly Lobbywatch dump. Returns the new
+        cache status.
+        """
+        await lb.ensure_dump_loaded(force=True)
+        status = await lb.status()
+        return DumpStatusResponse(provenance="weekly_dump", **status).model_dump()
+
+    @mcp.tool()
+    async def dump_status() -> dict[str, Any]:
+        """Return current dump cache status without forcing a refresh."""
+        status = await lb.status()
+        return DumpStatusResponse(provenance="weekly_dump", **status).model_dump()
+
+    return mcp

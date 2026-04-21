@@ -1,0 +1,222 @@
+"""Data access layer for lobbywatch-mcp.
+
+Design: dump-first, API-fallback.
+
+Rationale (verified live on 2026-04-21):
+    * The weekly aggregated JSON dump is stable, contains 245 parliamentarians
+      with 113 scalar fields and 7'780 interessenbindungen total, and is
+      refreshed every Monday morning by Lobbywatch.
+    * The live dataIF REST API currently returns 0 records for the
+      ``/table/parlamentarier/...`` endpoints. Other tables (interessengruppe,
+      branche) work. So we use the dump for parliamentarian queries and fall
+      back to the live API only for lobby groups and search.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import io
+import json
+import logging
+import time
+import zipfile
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+from lobbywatch_mcp.config import (
+    API_BASE,
+    CACHE_DIR,
+    CACHE_TTL_SECONDS,
+    DUMP_INNER_FILE,
+    DUMP_URL,
+    HTTP_TIMEOUT_SECONDS,
+    USER_AGENT,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class LobbywatchClient:
+    """Access layer around the weekly dump and the live dataIF."""
+
+    def __init__(
+        self,
+        cache_dir: Path | None = None,
+        ttl_seconds: int = CACHE_TTL_SECONDS,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self._cache_dir = cache_dir or CACHE_DIR
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        self._ttl = ttl_seconds
+        self._dump_path = self._cache_dir / "aggregated.json"
+        self._records: list[dict[str, Any]] | None = None
+        self._loaded_at: float | None = None
+        self._lock = asyncio.Lock()
+        self._http = http_client or httpx.AsyncClient(
+            timeout=HTTP_TIMEOUT_SECONDS,
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+            follow_redirects=True,
+        )
+        self._owns_http = http_client is None
+
+    async def aclose(self) -> None:
+        if self._owns_http:
+            await self._http.aclose()
+
+    # ------------------------------------------------------------------
+    # Dump handling
+    # ------------------------------------------------------------------
+
+    async def ensure_dump_loaded(self, force: bool = False) -> None:
+        """Download, cache, and load the weekly JSON dump if needed."""
+        async with self._lock:
+            if not force and self._records is not None and self._is_fresh():
+                return
+
+            if force or not self._dump_path.exists() or self._file_stale(self._dump_path):
+                await self._download_dump()
+
+            self._records = self._parse_dump(self._dump_path)
+            self._loaded_at = time.time()
+            logger.info("Dump loaded: %d parliamentarians", len(self._records))
+
+    def _is_fresh(self) -> bool:
+        return self._loaded_at is not None and (time.time() - self._loaded_at) < self._ttl
+
+    def _file_stale(self, path: Path) -> bool:
+        try:
+            age = time.time() - path.stat().st_mtime
+        except OSError:
+            return True
+        return age > self._ttl
+
+    async def _download_dump(self) -> None:
+        """Download the weekly dump with retry + exponential backoff.
+
+        The Lobbywatch CMS occasionally returns HTTP 503 during maintenance
+        windows. Three retries with 2s / 4s / 8s wait smooth over these blips.
+        """
+        last_error: Exception | None = None
+        resp: httpx.Response | None = None
+        for attempt in range(4):
+            if attempt > 0:
+                wait_seconds = 2**attempt
+                logger.warning(
+                    "Dump download attempt %d failed (%s); retrying in %ds",
+                    attempt,
+                    type(last_error).__name__ if last_error else "?",
+                    wait_seconds,
+                )
+                await asyncio.sleep(wait_seconds)
+            try:
+                logger.info("Downloading Lobbywatch dump from %s", DUMP_URL)
+                resp = await self._http.get(DUMP_URL)
+                resp.raise_for_status()
+                break
+            except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+                last_error = exc
+                # 4xx responses other than 429 should not be retried.
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                if status is not None and 400 <= status < 500 and status != 429:
+                    raise
+        if resp is None:
+            assert last_error is not None
+            raise RuntimeError(
+                f"Lobbywatch dump unreachable after retries: {last_error}"
+            ) from last_error
+
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            # The dump contains a few files; we want the essential nested variant.
+            inner_name = DUMP_INNER_FILE
+            if inner_name not in zf.namelist():
+                # Some weeks ship slightly different inner names — take the first
+                # JSON with "parlamentarier_nested" in it.
+                candidates = [
+                    n for n in zf.namelist() if n.endswith(".json") and "parlamentarier_nested" in n
+                ]
+                if not candidates:
+                    raise RuntimeError(f"Dump does not contain expected file. Got: {zf.namelist()}")
+                inner_name = candidates[0]
+            with zf.open(inner_name) as src, self._dump_path.open("wb") as dst:
+                dst.write(src.read())
+
+    @staticmethod
+    def _parse_dump(path: Path) -> list[dict[str, Any]]:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            raise RuntimeError(f"Unexpected dump shape: {type(data).__name__}")
+        return data
+
+    # ------------------------------------------------------------------
+    # Accessors (dump-based)
+    # ------------------------------------------------------------------
+
+    async def all_parlamentarier(self) -> list[dict[str, Any]]:
+        await self.ensure_dump_loaded()
+        assert self._records is not None
+        return self._records
+
+    async def find_parlamentarier(self, id_or_name: int | str) -> dict[str, Any] | None:
+        records = await self.all_parlamentarier()
+        if isinstance(id_or_name, int) or (isinstance(id_or_name, str) and id_or_name.isdigit()):
+            wanted = int(id_or_name)
+            for r in records:
+                if r.get("id") == wanted:
+                    return r
+            return None
+
+        # String search: try exact anzeige_name, then fuzzy on nachname/vorname.
+        from rapidfuzz import fuzz, process
+
+        query = str(id_or_name).strip().lower()
+
+        exact = [r for r in records if (r.get("anzeige_name", "") or "").lower() == query]
+        if exact:
+            return exact[0]
+
+        names = [(r.get("anzeige_name") or "", r) for r in records]
+        best = process.extractOne(query, [n for n, _ in names], scorer=fuzz.WRatio, score_cutoff=70)
+        if not best:
+            return None
+        matched_name, _score, idx = best
+        return names[idx][1]
+
+    async def status(self) -> dict[str, Any]:
+        loaded = self._records is not None
+        age = int(time.time() - self._loaded_at) if self._loaded_at else None
+        return {
+            "loaded": loaded,
+            "age_seconds": age,
+            "record_count": len(self._records) if self._records else 0,
+            "cached_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self._loaded_at))
+            if self._loaded_at
+            else None,
+        }
+
+    # ------------------------------------------------------------------
+    # Live dataIF (fallback path)
+    # ------------------------------------------------------------------
+
+    async def api_get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        url = f"{API_BASE}/{path.lstrip('/')}"
+        resp = await self._http.get(url, params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def fetch_lobbygruppe(self, id_or_name: int | str) -> dict[str, Any] | None:
+        """Use the live dataIF — this endpoint was verified working."""
+        if isinstance(id_or_name, int) or (isinstance(id_or_name, str) and id_or_name.isdigit()):
+            data = await self.api_get(f"table/interessengruppe/aggregated/id/{int(id_or_name)}")
+            return data.get("data")
+
+        # Search by name first, then fetch aggregated.
+        search = await self.api_get(f"search/default/{id_or_name}", params={"limit": 5})
+        hits = search.get("data") or []
+        for hit in hits:
+            if hit.get("table") == "interessengruppe":
+                data = await self.api_get(f"table/interessengruppe/aggregated/id/{hit.get('id')}")
+                return data.get("data")
+        return None
