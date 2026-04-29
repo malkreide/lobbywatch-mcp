@@ -19,6 +19,8 @@
 
 > *«Welche Mitglieder der WBK-N haben Interessenbindungen zu Bildungsverlagen oder privaten Bildungsträgern, und wie ist ihre Transparenz-Bewertung?»*
 
+[→ Weitere Anwendungsbeispiele nach Zielgruppe →](EXAMPLES.md)
+
 ---
 
 ## Übersicht

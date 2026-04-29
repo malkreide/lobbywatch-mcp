@@ -21,6 +21,8 @@
 
 Which members of the National Council's Education Commission have declared conflicts of interest with educational publishers or private education providers, and how does their compensation transparency score compare?
 
+[→ More use cases by audience →](EXAMPLES.md)
+
 ---
 
 ## Overview
