@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import ipaddress
 import json
 import logging
 import time
@@ -39,6 +40,72 @@ from lobbywatch_mcp.config import (
 logger = logging.getLogger(__name__)
 
 
+# Networks an outbound MCP request must never reach: RFC1918 / link-local /
+# loopback / cloud-metadata. Pre-built once because each request goes through
+# the SSRF guard hook below (audit SEC-005).
+_SSRF_FORBIDDEN_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "169.254.0.0/16",  # link-local incl. cloud metadata (169.254.169.254)
+        "127.0.0.0/8",
+        "0.0.0.0/8",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10",
+    )
+)
+
+
+def _is_forbidden_address(ip_str: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return True
+    return any(addr in net for net in _SSRF_FORBIDDEN_NETWORKS)
+
+
+async def _ssrf_guard(request: httpx.Request) -> None:
+    """httpx event hook: refuse requests whose host resolves to a private,
+    link-local, or loopback address (audit SEC-005, defense-in-depth against
+    DNS rebinding / SSRF).
+
+    The host is already constrained by the hardcoded ``API_BASE`` /
+    ``DUMP_URL`` constants, but the resolver could still drift between
+    process start and any individual request — this hook catches that.
+    """
+    host = request.url.host
+    if not host:
+        return
+    # Allow literal IP URLs only if they are not in a forbidden network.
+    try:
+        ipaddress.ip_address(host)
+        if _is_forbidden_address(host):
+            raise RuntimeError(f"Refusing to connect to forbidden address {host}")
+        return
+    except ValueError:
+        pass  # not a literal IP — resolve below
+
+    loop = asyncio.get_running_loop()
+    try:
+        infos = await loop.getaddrinfo(host, None)
+    except OSError:
+        # Resolver failure: let httpx surface its own error rather than
+        # masking it here.
+        return
+    resolved = sorted({info[4][0] for info in infos})
+    bad = [ip for ip in resolved if _is_forbidden_address(ip)]
+    if bad:
+        logger.error(
+            "SSRF guard blocked %s — resolved to forbidden addresses %s",
+            host,
+            bad,
+        )
+        raise RuntimeError(f"Refusing to connect to {host}: resolved to forbidden addresses {bad}")
+
+
 class LobbywatchClient:
     """Access layer around the weekly dump and the live dataIF."""
 
@@ -59,6 +126,7 @@ class LobbywatchClient:
             timeout=HTTP_TIMEOUT_SECONDS,
             headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
             follow_redirects=False,
+            event_hooks={"request": [_ssrf_guard]},
         )
         self._owns_http = http_client is None
 

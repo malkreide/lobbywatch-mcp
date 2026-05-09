@@ -126,6 +126,7 @@ Steuerung vollständig über Umgebungsvariablen:
 | `LOBBYWATCH_MCP_CACHE_DIR` | `~/.cache/lobbywatch-mcp` | Speicherort für gecachte Dumps |
 | `LOBBYWATCH_MCP_CACHE_TTL` | `86400` (24 h) | Cache-Gültigkeit in Sekunden |
 | `LOBBYWATCH_MCP_HTTP_TIMEOUT` | `60` | HTTP-Timeout in Sekunden |
+| `LOBBYWATCH_MCP_CORS_ORIGINS` | _(unset)_ | Komma-getrennte Origin-Allow-List für HTTP/SSE; falls gesetzt, wird `Mcp-Session-Id` an Browser exponiert |
 
 ## Projektstruktur
 

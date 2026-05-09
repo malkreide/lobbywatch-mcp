@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import httpx
+import pytest
 import respx
 
-from lobbywatch_mcp.client import LobbywatchClient
+from lobbywatch_mcp.client import LobbywatchClient, _is_forbidden_address, _ssrf_guard
 from lobbywatch_mcp.config import API_BASE, DUMP_URL
 
 
@@ -64,6 +65,31 @@ async def test_fetch_lobbygruppe_by_id(tmp_path: Path) -> None:
     assert result is not None
     assert result["anzeige_name"] == "Beispielgruppe"
     await client.aclose()
+
+
+@pytest.mark.parametrize(
+    "ip,forbidden",
+    [
+        ("169.254.169.254", True),  # AWS / GCP metadata
+        ("127.0.0.1", True),
+        ("10.0.0.5", True),
+        ("192.168.1.1", True),
+        ("172.16.0.1", True),
+        ("::1", True),
+        ("8.8.8.8", False),  # public DNS
+        ("1.1.1.1", False),
+    ],
+)
+def test_ssrf_guard_classifies_addresses(ip: str, forbidden: bool) -> None:
+    """SEC-005: forbidden CIDRs must be flagged."""
+    assert _is_forbidden_address(ip) is forbidden
+
+
+async def test_ssrf_guard_blocks_metadata_ip() -> None:
+    """SEC-005: an httpx request to a literal forbidden IP raises before connecting."""
+    request = httpx.Request("GET", "http://169.254.169.254/latest/meta-data/")
+    with pytest.raises(RuntimeError, match="forbidden address"):
+        await _ssrf_guard(request)
 
 
 @respx.mock

@@ -140,6 +140,7 @@ All behaviour is controlled via environment variables:
 | `LOBBYWATCH_MCP_CACHE_DIR` | `~/.cache/lobbywatch-mcp` | Dump cache location |
 | `LOBBYWATCH_MCP_CACHE_TTL` | `86400` (24h) | Cache time-to-live in seconds |
 | `LOBBYWATCH_MCP_HTTP_TIMEOUT` | `60` | HTTP timeout in seconds |
+| `LOBBYWATCH_MCP_CORS_ORIGINS` | _(unset)_ | Comma-separated origin allow-list for HTTP/SSE; when set, exposes `Mcp-Session-Id` to browsers |
 
 ## Project Structure
 
