@@ -120,7 +120,7 @@ All behaviour is controlled via environment variables:
 | Variable | Default | Purpose |
 |---|---|---|
 | `LOBBYWATCH_MCP_TRANSPORT` | `stdio` | Transport (`stdio`, `http`, `sse`) |
-| `LOBBYWATCH_MCP_HOST` | `0.0.0.0` | HTTP bind host |
+| `LOBBYWATCH_MCP_HOST` | `127.0.0.1` | HTTP bind host (set to `0.0.0.0` only behind an auth gateway) |
 | `LOBBYWATCH_MCP_PORT` | `8000` | HTTP bind port |
 | `LOBBYWATCH_MCP_CACHE_DIR` | `~/.cache/lobbywatch-mcp` | Dump cache location |
 | `LOBBYWATCH_MCP_CACHE_TTL` | `86400` (24h) | Cache time-to-live in seconds |

@@ -118,7 +118,7 @@ Steuerung vollständig über Umgebungsvariablen:
 | Variable | Default | Zweck |
 |---|---|---|
 | `LOBBYWATCH_MCP_TRANSPORT` | `stdio` | Transportmodus (`stdio`, `http`, `sse`) |
-| `LOBBYWATCH_MCP_HOST` | `0.0.0.0` | HTTP-Bind-Host |
+| `LOBBYWATCH_MCP_HOST` | `127.0.0.1` | HTTP-Bind-Host (nur hinter Auth-Gateway auf `0.0.0.0` setzen) |
 | `LOBBYWATCH_MCP_PORT` | `8000` | HTTP-Bind-Port |
 | `LOBBYWATCH_MCP_CACHE_DIR` | `~/.cache/lobbywatch-mcp` | Speicherort für gecachte Dumps |
 | `LOBBYWATCH_MCP_CACHE_TTL` | `86400` (24 h) | Cache-Gültigkeit in Sekunden |
