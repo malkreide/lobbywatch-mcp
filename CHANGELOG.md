@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Structured JSON logging via structlog (audit OBS-003). Opt-in with
+  `LOBBYWATCH_MCP_LOG_FORMAT=json` — default stays `text` to preserve
+  the quiet stdio experience. Each tool invocation generates a
+  16-char correlation id that's bound into the structlog context vars
+  and surfaces in every JSON line as `correlation_id`.
+- OpenTelemetry distributed tracing (audit OBS-006). Opt-in with
+  `LOBBYWATCH_MCP_OTEL_ENABLED=1`; OTel is an optional dep installed
+  via `pip install 'lobbywatch-mcp[obs]'`. Wraps each tool call in a
+  `tool.<name>` span and auto-instruments the httpx client. The
+  `_observability.observed_tool` async context manager keeps OBS-003
+  + OBS-006 in sync — every tool body is wrapped exactly once.
+- Lifespan startup now logs the active MCP `protocolVersion` (audit
+  ARCH-012 closure: SDK upper-bound was already pinned in 0.2.0; this
+  closes the remaining "log it for operators" gap).
+- New optional dependency group `obs` covering
+  `opentelemetry-api`, `opentelemetry-sdk`,
+  `opentelemetry-exporter-otlp-proto-http`,
+  `opentelemetry-instrumentation-httpx`. Without it, tracing config
+  warns and no-ops; logging stays available either way.
 - Multi-stage `Dockerfile` and `.dockerignore` (audit SCALE-004). Runtime
   image runs as `uid 1000`, read-only-rootfs compatible, no build
   toolchain in the final stage (audit SEC-007).

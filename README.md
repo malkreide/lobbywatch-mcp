@@ -141,6 +141,10 @@ All behaviour is controlled via environment variables:
 | `LOBBYWATCH_MCP_CACHE_TTL` | `86400` (24h) | Cache time-to-live in seconds |
 | `LOBBYWATCH_MCP_HTTP_TIMEOUT` | `60` | HTTP timeout in seconds |
 | `LOBBYWATCH_MCP_CORS_ORIGINS` | _(unset)_ | Comma-separated origin allow-list for HTTP/SSE; when set, exposes `Mcp-Session-Id` to browsers |
+| `LOBBYWATCH_MCP_LOG_FORMAT` | `text` | `text` (stdlib formatter) or `json` (structured via structlog) |
+| `LOBBYWATCH_MCP_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
+| `LOBBYWATCH_MCP_OTEL_ENABLED` | `0` | Set to `1` to enable OpenTelemetry tracing (requires `pip install 'lobbywatch-mcp[obs]'`) |
+| `LOBBYWATCH_MCP_OTEL_ENDPOINT` | _(unset)_ | OTLP/HTTP collector endpoint (e.g. `http://localhost:4318/v1/traces`) |
 
 ## Project Structure
 
