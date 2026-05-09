@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-09
+
+Audit-driven hardening release. Closes 24 of 25 findings from the
+initial mcp-audit-skill v1.0.0 run; the re-audit
+(`audits/2026-05-09T133506-Z-lobbywatch-mcp/`) reports
+`production_ready: true` (41 pass, 0 fail, 1 cosmetic partial).
+
 ### Added
 - Structured JSON logging via structlog (audit OBS-003). Opt-in with
   `LOBBYWATCH_MCP_LOG_FORMAT=json` — default stays `text` to preserve
@@ -51,6 +58,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `lobbywatch_refresh_dump` now accepts a `Context` parameter and emits
   `ctx.info` start/end notifications around the dump download (audit
   SDK-003), giving long-running clients useful progress feedback.
+- Fuzzy-match suggestions on missed lookups (audit ARCH-003).
+  `lobbywatch_get_parlamentarier` and `lobbywatch_list_interessenbindungen`
+  return up to three near-miss candidates (rapidfuzz WRatio in
+  [50, 70)) in a new `suggestions` field, so the LLM can offer
+  "did you mean…?" instead of treating the empty result as truth. New
+  `LobbywatchClient.find_candidates()` powers this.
+- MCP Resources and Prompts (audit ARCH-008):
+  - Resource `lobbywatch://attribution` (text/plain) — the CC BY-SA 4.0
+    licence string for clients that want to display it standalone.
+  - Prompt `lobbywatch_anchor_demo` — parameterised by `branche`, scaffolds
+    the canonical Schulamt / KI-Fachgruppe demo query.
+  - Prompt `lobbywatch_top_lobbyists_by_party` — parameterised by `partei`,
+    surfaces the top-10 ranking with transparency metadata.
 
 ### Changed
 - Tool-boundary error handling: upstream `RuntimeError` /
@@ -69,21 +89,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of opaque `additionalProperties: true`. Wire format is unchanged.
 - Tool docstrings now carry `Use cases:` blocks (audit ARCH-002) with
   three concrete example queries each, sharpening LLM tool selection.
+- `USER_AGENT` bumped to `lobbywatch-mcp/0.3.0`.
 
-### Added
-- Fuzzy-match suggestions on missed lookups (audit ARCH-003).
-  `lobbywatch_get_parlamentarier` and `lobbywatch_list_interessenbindungen`
-  now return up to three near-miss candidates (rapidfuzz WRatio in
-  [50, 70)) in a new `suggestions` field, so the LLM can offer
-  "did you mean…?" instead of treating the empty result as truth. New
-  `LobbywatchClient.find_candidates()` powers this.
-- MCP Resources and Prompts (audit ARCH-008):
-  - Resource `lobbywatch://attribution` (text/plain) — the CC BY-SA 4.0
-    licence string for clients that want to display it standalone.
-  - Prompt `lobbywatch_anchor_demo` — parameterised by `branche`, scaffolds
-    the canonical Schulamt / KI-Fachgruppe demo query.
-  - Prompt `lobbywatch_top_lobbyists_by_party` — parameterised by `partei`,
-    surfaces the top-10 ranking with transparency metadata.
+### Audit verification
+
+- **Production-ready:** ✅ yes
+- **Audit run-id:** `2026-05-09T133506-Z-lobbywatch-mcp`
+- **Skill version:** `1.0.0`
+- **Catalog hash:** `091f446b27965044…`
+- **Check results:** 41 pass · 0 fail · 1 partial · 2 todo
+- **Remaining finding:** `OPS-002` — README ASCII architecture diagram
+  (cosmetic, ~10 min effort).
 
 ## [0.2.0] - 2026-05-09
 
