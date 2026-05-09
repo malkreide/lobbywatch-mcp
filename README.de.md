@@ -38,6 +38,27 @@ Lobbywatch.ch betreibt die grösste öffentliche Datenbank zu Schweizer Parlamen
 - **Unscharfe Namenssuche** (rapidfuzz) für LLM-typische Eingaben wie «Jositsch» oder «Wehrli».
 - **Keine Authentifizierung nötig** (Phase 1 — No-Auth-First).
 
+## Architektur
+
+```
+                    ┌─────────────────────────────┐
+   LLM-Client       │     LobbywatchClient        │
+  (Claude Desktop,  │                             │
+   Inspector, …)    │   ┌───────────────────┐     │
+        │           │   │  Dump-Cache       │     │      cms.lobbywatch.ch
+        │  MCP      │   │  (24 h TTL,       │     │      ┌──────────────────┐
+        ▼  stdio /  │   │   ~80 MB resident)├─────┼─────►│ wöchentlicher    │
+   ┌─────────┐ HTTP │   └───────────────────┘     │      │ JSON-Export      │
+   │ FastMCP │◄────►│                             │      │ (~17 MB)         │
+   │ Server  │      │   ┌───────────────────┐     │      └──────────────────┘
+   └─────────┘      │   │  dataIF REST      ├─────┼─────►┌──────────────────┐
+                    │   │  (Live-Fallback)  │     │      │ /interface/v1/   │
+                    │   └───────────────────┘     │      │   json/…         │
+                    └─────────────────────────────┘      └──────────────────┘
+```
+
+Ausgehender HTTP-Verkehr läuft über einen einzigen `httpx.AsyncClient` mit `follow_redirects=False`, einem SSRF-Guard der RFC1918-, Link-local- und Metadata-IPs blockiert, und einem httpx-Event-Hook, der bei jedem Request erneut auflöst. Die Dump-Pfade sind die Primärquelle für Parlamentarier-Abfragen; `dataIF` wird nur für Lobbygruppen-Lookups und das Search-Endpoint verwendet.
+
 ## Voraussetzungen
 
 - Python 3.11 oder neuer
