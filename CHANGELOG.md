@@ -19,6 +19,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resource-sizing rationale, HAProxy stick-table example for sticky LBs
   (audit SCALE-002, SCALE-003), and a Kubernetes egress `NetworkPolicy`
   template (audit SEC-021).
+- SSRF / DNS-rebinding guard in the httpx client: an event hook re-resolves
+  every outbound host and refuses connections to RFC1918 / link-local /
+  loopback / cloud-metadata addresses (audit SEC-005). Hardcoded URL
+  allow-list + `follow_redirects=False` + this guard provide
+  defence-in-depth.
+- Optional CORS support for HTTP/SSE deployments via the
+  `LOBBYWATCH_MCP_CORS_ORIGINS` env var (comma-separated origin list).
+  When set, the FastMCP ASGI app is wrapped with a Starlette
+  `CORSMiddleware` that exposes `Mcp-Session-Id` to browser clients
+  (audit SDK-004). Default (empty) emits no CORS headers.
+- `lobbywatch_refresh_dump` now accepts a `Context` parameter and emits
+  `ctx.info` start/end notifications around the dump download (audit
+  SDK-003), giving long-running clients useful progress feedback.
+
+### Changed
+- Tool-boundary error handling: upstream `RuntimeError` /
+  `httpx.HTTPError` are explicitly converted to `McpError` with code
+  `INTERNAL_ERROR` (audit OBS-001). Previously these fell through to
+  FastMCP's auto-coercion — same wire effect, but the categorisation is
+  now intentional and operators get a structured `logger.error` for the
+  underlying exception.
+- HTTP/SSE transport now runs through `uvicorn.run` directly on
+  `mcp.streamable_http_app()` / `mcp.sse_app()` so middleware can be
+  attached. `stdio` transport is unchanged.
 
 ## [0.2.0] - 2026-05-09
 

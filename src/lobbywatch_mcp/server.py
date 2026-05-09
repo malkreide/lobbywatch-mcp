@@ -22,12 +22,14 @@ Anchor demo query (Schulamt / KI-Fachgruppe context):
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypeVar
 
-from mcp.server.fastmcp import FastMCP
-from mcp.types import ToolAnnotations
+import httpx
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.shared.exceptions import McpError
+from mcp.types import INTERNAL_ERROR, ErrorData, ToolAnnotations
 from pydantic import Field
 
 from lobbywatch_mcp.client import LobbywatchClient
@@ -47,6 +49,32 @@ from lobbywatch_mcp.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
+
+
+async def _coerce_upstream(coro: Awaitable[_T]) -> _T:
+    """Run a client coroutine and convert internal/upstream failures into a
+    typed protocol-layer ``McpError`` (audit OBS-001).
+
+    FastMCP would otherwise auto-coerce any uncaught ``RuntimeError`` /
+    ``httpx.HTTPError`` into a generic INTERNAL_ERROR — surfacing the same
+    JSON-RPC code regardless of root cause. By raising ``McpError``
+    explicitly here we keep the categorisation intentional and log the
+    underlying exception for operators.
+    """
+    try:
+        return await coro
+    except McpError:
+        raise
+    except (RuntimeError, httpx.HTTPError) as exc:
+        logger.error("Lobbywatch upstream failure: %r", exc)
+        raise McpError(
+            ErrorData(
+                code=INTERNAL_ERROR,
+                message=f"Lobbywatch upstream error: {exc}",
+            )
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +233,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             name_or_id: Either the numeric Lobbywatch ID (as string) or a name.
                 Name matching is fuzzy — partial last names work.
         """
-        record = await lb().find_parlamentarier(name_or_id)
+        record = await _coerce_upstream(lb().find_parlamentarier(name_or_id))
         if record is None:
             return ParlamentarierResponse(
                 provenance="weekly_dump",
@@ -237,7 +265,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             nur_hauptberuflich: If True, only main-occupation mandates.
             nur_aktiv: If True, drop mandates with an end date (bis) set.
         """
-        record = await lb().find_parlamentarier(name_or_id)
+        record = await _coerce_upstream(lb().find_parlamentarier(name_or_id))
         if record is None:
             return InteressenbindungenResponse(
                 provenance="weekly_dump",
@@ -292,7 +320,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             limit: Max number of {parlamentarier, ib} pairs returned (1–200).
         """
         q = branche_query.strip().lower()
-        records = await lb().all_parlamentarier()
+        records = await _coerce_upstream(lb().all_parlamentarier())
         hits: list[dict[str, Any]] = []
 
         for r in records:
@@ -366,7 +394,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             partei: Optional party filter (e.g. "SP", "SVP", "Mitte").
             limit: Top-N to return (1–100).
         """
-        records = await lb().all_parlamentarier()
+        records = await _coerce_upstream(lb().all_parlamentarier())
         summaries = [_summary_from_record(r) for r in records]
 
         if kommission:
@@ -410,7 +438,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
         Useful to answer: 'How transparent is the education commission on
         compensation disclosure?'
         """
-        records = await lb().all_parlamentarier()
+        records = await _coerce_upstream(lb().all_parlamentarier())
         if kommission:
             k = kommission.lower()
             records = [r for r in records if k in {x.lower() for x in _split_kommissionen(r)}]
@@ -453,7 +481,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
 
         Uses the live REST API since this endpoint returns fresh data.
         """
-        data = await lb().fetch_lobbygruppe(name_or_id)
+        data = await _coerce_upstream(lb().fetch_lobbygruppe(name_or_id))
         if data is None:
             return LobbygruppeResponse(provenance="dataIF_live").model_dump()
 
@@ -488,12 +516,21 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             openWorldHint=True,
         ),
     )
-    async def refresh_dump() -> dict[str, Any]:
+    async def refresh_dump(ctx: Context) -> dict[str, Any]:
         """Force re-download of the weekly Lobbywatch dump. Returns the new
         cache status.
+
+        Reports progress via the MCP Context (audit SDK-003) so long-running
+        downloads (~17 MB compressed) surface useful feedback to the calling
+        LLM and operator.
         """
-        await lb().ensure_dump_loaded(force=True)
+        await ctx.info("Refreshing Lobbywatch weekly dump...")
+        await _coerce_upstream(lb().ensure_dump_loaded(force=True))
         status = await lb().status()
+        await ctx.info(
+            f"Dump refreshed: {status['record_count']} parliamentarians "
+            f"(cached at {status['cached_at']})"
+        )
         return DumpStatusResponse(provenance="weekly_dump", **status).model_dump()
 
     @mcp.tool(

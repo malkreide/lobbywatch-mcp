@@ -6,8 +6,11 @@ schema / projection regressions.
 
 from __future__ import annotations
 
+import pytest
+from mcp.shared.exceptions import McpError
+
 from lobbywatch_mcp.client import LobbywatchClient
-from lobbywatch_mcp.server import build_server
+from lobbywatch_mcp.server import _coerce_upstream, build_server
 
 
 async def _call_tool(mcp, name: str, arguments: dict) -> dict:
@@ -111,3 +114,39 @@ async def test_tools_use_lobbywatch_namespace(primed_client: LobbywatchClient) -
     assert tools, "expected at least one tool"
     bad = [t.name for t in tools if not t.name.startswith("lobbywatch_")]
     assert not bad, f"unprefixed tools: {bad}"
+
+
+async def test_coerce_upstream_passes_through_value() -> None:
+    """OBS-001 helper: successful coroutines return their value unchanged."""
+
+    async def ok() -> int:
+        return 42
+
+    assert await _coerce_upstream(ok()) == 42
+
+
+async def test_coerce_upstream_converts_runtime_to_mcp_error() -> None:
+    """OBS-001: RuntimeError from upstream surfaces as McpError, not raw."""
+
+    async def boom() -> int:
+        raise RuntimeError("upstream is down")
+
+    with pytest.raises(McpError) as exc_info:
+        await _coerce_upstream(boom())
+    # The original exception is preserved as __cause__.
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert "upstream is down" in str(exc_info.value)
+
+
+async def test_coerce_upstream_passes_through_mcp_error() -> None:
+    """OBS-001: an already-typed McpError must not be double-wrapped."""
+    from mcp.types import INVALID_PARAMS, ErrorData
+
+    original = McpError(ErrorData(code=INVALID_PARAMS, message="bad arg"))
+
+    async def already_typed() -> int:
+        raise original
+
+    with pytest.raises(McpError) as exc_info:
+        await _coerce_upstream(already_typed())
+    assert exc_info.value is original
