@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `.github/workflows/publish.yml` — tag-triggered PyPI release via
+  Trusted Publisher (OIDC, no API token in repo secrets). Verifies that
+  the pushed tag matches `pyproject.toml`'s `version` before publishing.
+  One-time setup on PyPI: register `malkreide/lobbywatch-mcp` ·
+  `publish.yml` · environment `pypi` as a pending publisher.
 - ASCII architecture diagram in README.md / README.de.md (audit OPS-002
   closure — was the single remaining cosmetic finding from the
   2026-05-09 re-audit). Visualises the dump-first / dataIF-fallback
