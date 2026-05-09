@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Multi-stage `Dockerfile` and `.dockerignore` (audit SCALE-004). Runtime
+  image runs as `uid 1000`, read-only-rootfs compatible, no build
+  toolchain in the final stage (audit SEC-007).
+- `deploy/docker-compose.example.yml` with hardening defaults:
+  `read_only`, `cap_drop: [ALL]`, `no-new-privileges`, tmpfs cache,
+  loopback-only port bind, healthcheck, and `deploy.resources` limits
+  (256 MiB / 0.1 CPU request, 512 MiB / 0.5 CPU limit) — audit SCALE-006.
+- `docs/deployment.md`: trust-model recap, container build/run commands,
+  resource-sizing rationale, HAProxy stick-table example for sticky LBs
+  (audit SCALE-002, SCALE-003), and a Kubernetes egress `NetworkPolicy`
+  template (audit SEC-021).
+
 ## [0.2.0] - 2026-05-09
 
 ### Changed (Breaking)

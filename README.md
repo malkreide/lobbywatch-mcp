@@ -75,6 +75,18 @@ This starts the server in `stdio` mode. For HTTP:
 LOBBYWATCH_MCP_TRANSPORT=http LOBBYWATCH_MCP_PORT=8000 lobbywatch-mcp
 ```
 
+### Container
+
+A hardened multi-stage `Dockerfile` ships with the repo (non-root,
+read-only-rootfs compatible). See [`docs/deployment.md`](docs/deployment.md)
+and [`deploy/docker-compose.example.yml`](deploy/docker-compose.example.yml)
+for resource limits, sticky-LB guidance and egress hardening.
+
+```bash
+docker build -t lobbywatch-mcp:0.2.0 .
+docker run --rm -p 127.0.0.1:8000:8000 lobbywatch-mcp:0.2.0
+```
+
 ### Claude Desktop
 
 Add to your `claude_desktop_config.json`:
