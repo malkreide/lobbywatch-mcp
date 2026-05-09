@@ -103,20 +103,46 @@ class RankingResponse(LobbywatchResponse):
     eintraege: list[RankingEntry] = Field(default_factory=list)
 
 
+class ParlamentarierSuggestion(BaseModel):
+    """A near-miss candidate offered when the requested name was not found.
+
+    Surfaced by ``lobbywatch_get_parlamentarier`` /
+    ``lobbywatch_list_interessenbindungen`` (audit ARCH-003) so the LLM can
+    suggest a corrected lookup instead of treating an empty hit as truth.
+    """
+
+    id: int
+    anzeige_name: str
+    score: int = Field(ge=0, le=100, description="rapidfuzz WRatio score (0-100)")
+
+
 class ParlamentarierResponse(LobbywatchResponse):
     parlamentarier: ParlamentarierDetail | None = None
+    suggestions: list[ParlamentarierSuggestion] = Field(
+        default_factory=list,
+        description="Near-miss fuzzy candidates when the lookup failed (ARCH-003)",
+    )
 
 
 class InteressenbindungenResponse(LobbywatchResponse):
     parlamentarier_id: int
     count: int
     interessenbindungen: list[Interessenbindung] = Field(default_factory=list)
+    suggestions: list[ParlamentarierSuggestion] = Field(
+        default_factory=list,
+        description="Near-miss fuzzy candidates when the lookup failed (ARCH-003)",
+    )
+
+
+class BrancheSearchHit(BaseModel):
+    parlamentarier: ParlamentarierSummary
+    interessenbindung: Interessenbindung
 
 
 class BrancheSearchResponse(LobbywatchResponse):
     query: str
     count: int
-    treffer: list[dict[str, Any]] = Field(
+    treffer: list[BrancheSearchHit] = Field(
         default_factory=list,
         description="List of {parlamentarier, interessenbindung} pairs matching the branche",
     )

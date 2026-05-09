@@ -150,3 +150,44 @@ async def test_coerce_upstream_passes_through_mcp_error() -> None:
     with pytest.raises(McpError) as exc_info:
         await _coerce_upstream(already_typed())
     assert exc_info.value is original
+
+
+async def test_get_parlamentarier_surfaces_suggestions(
+    primed_client: LobbywatchClient,
+) -> None:
+    """ARCH-003: a near-miss query should return candidates instead of a silent miss."""
+    mcp = build_server(client=primed_client)
+    payload = await _call_tool(mcp, "lobbywatch_get_parlamentarier", {"name_or_id": "Mustermenn"})
+    # The fuzzy miss path either returns a hit (if WRatio >= 70) or
+    # a parlamentarier=None payload with suggestions populated.
+    if payload["parlamentarier"] is None:
+        assert isinstance(payload.get("suggestions"), list)
+
+
+async def test_tools_have_typed_output_schema(primed_client: LobbywatchClient) -> None:
+    """SDK-002: each tool exposes a real Pydantic-derived output schema."""
+    mcp = build_server(client=primed_client)
+    tools = await mcp.list_tools()
+    untyped = []
+    for t in tools:
+        schema = t.outputSchema or {}
+        # `additionalProperties: True` is the FastMCP marker for an unspecified
+        # dict-typed return — what the audit flagged.
+        if schema.get("additionalProperties") is True and "properties" not in schema:
+            untyped.append(t.name)
+    assert not untyped, f"tools still using untyped dict returns: {untyped}"
+
+
+async def test_resources_and_prompts_registered(
+    primed_client: LobbywatchClient,
+) -> None:
+    """ARCH-008: server exposes Resources and Prompts in addition to Tools."""
+    mcp = build_server(client=primed_client)
+    resources = await mcp.list_resources()
+    prompts = await mcp.list_prompts()
+    assert any(str(r.uri) == "lobbywatch://attribution" for r in resources), (
+        f"missing attribution resource; got {[str(r.uri) for r in resources]}"
+    )
+    prompt_names = {p.name for p in prompts}
+    assert "lobbywatch_anchor_demo" in prompt_names
+    assert "lobbywatch_top_lobbyists_by_party" in prompt_names

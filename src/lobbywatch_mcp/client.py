@@ -251,8 +251,43 @@ class LobbywatchClient:
         best = process.extractOne(query, [n for n, _ in names], scorer=fuzz.WRatio, score_cutoff=70)
         if not best:
             return None
-        matched_name, _score, idx = best
+        _matched_name, _score, idx = best
         return names[idx][1]
+
+    async def find_candidates(
+        self,
+        query: str,
+        *,
+        min_score: int = 50,
+        max_score_excl: int = 70,
+        top_k: int = 3,
+    ) -> list[tuple[dict[str, Any], int]]:
+        """Return up to ``top_k`` near-miss parliamentarian records ranked by
+        rapidfuzz WRatio (audit ARCH-003 — avoid the silent "not found" by
+        offering "did you mean…?" candidates).
+
+        Only results in ``[min_score, max_score_excl)`` are returned: the
+        upper bound stays below ``find_parlamentarier``'s 70 threshold so
+        these are *misses*, not silently competing matches.
+        """
+        if not query.strip() or query.isdigit():
+            return []
+        from rapidfuzz import fuzz, process
+
+        records = await self.all_parlamentarier()
+        names = [(r.get("anzeige_name") or "", r) for r in records]
+        candidates = process.extract(
+            query.strip().lower(),
+            [n for n, _ in names],
+            scorer=fuzz.WRatio,
+            limit=top_k,
+            score_cutoff=min_score,
+        )
+        return [
+            (names[idx][1], int(score))
+            for _name, score, idx in candidates
+            if score < max_score_excl
+        ]
 
     async def status(self) -> dict[str, Any]:
         loaded = self._records is not None
