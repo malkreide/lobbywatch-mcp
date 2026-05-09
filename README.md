@@ -40,6 +40,27 @@ Lobbywatch.ch maintains the largest public database on Swiss federal parliamenta
 - **Fuzzy name matching** via rapidfuzz for natural LLM input like "Jositsch" or "Wehrli".
 - **No authentication required** (Phase 1 — No-Auth-First).
 
+## Architecture
+
+```
+                    ┌─────────────────────────────┐
+   LLM client       │     LobbywatchClient        │
+  (Claude Desktop,  │                             │
+   Inspector, …)    │   ┌───────────────────┐     │
+        │           │   │  Dump cache       │     │      cms.lobbywatch.ch
+        │  MCP      │   │  (24 h TTL,       │     │      ┌──────────────────┐
+        ▼  stdio /  │   │   ~80 MB resident)├─────┼─────►│ weekly JSON      │
+   ┌─────────┐ HTTP │   └───────────────────┘     │      │ export (~17 MB)  │
+   │ FastMCP │◄────►│                             │      └──────────────────┘
+   │ server  │      │   ┌───────────────────┐     │      ┌──────────────────┐
+   └─────────┘      │   │  dataIF REST      ├─────┼─────►│ /interface/v1/   │
+                    │   │  (live fallback)  │     │      │   json/…         │
+                    │   └───────────────────┘     │      └──────────────────┘
+                    └─────────────────────────────┘
+```
+
+Outbound HTTP runs through a single `httpx.AsyncClient` with `follow_redirects=False`, an SSRF guard that blocks RFC1918 / link-local / metadata IPs, and an httpx event hook that re-resolves on every request. The dump path is the primary source of truth for parliamentarian queries; `dataIF` is only used for lobby group lookups and the search endpoint.
+
 ## Prerequisites
 
 - Python 3.11 or newer

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- ASCII architecture diagram in README.md / README.de.md (audit OPS-002
+  closure — was the single remaining cosmetic finding from the
+  2026-05-09 re-audit). Visualises the dump-first / dataIF-fallback
+  split plus the SSRF-guarded outbound HTTP path.
+
 ## [0.3.0] - 2026-05-09
 
 Audit-driven hardening release. Closes 24 of 25 findings from the
