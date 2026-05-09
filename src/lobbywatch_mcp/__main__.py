@@ -16,13 +16,13 @@ def main() -> None:
     mcp = build_server()
 
     if transport == "http":
-        host = os.getenv("LOBBYWATCH_MCP_HOST", "0.0.0.0")
+        host = os.getenv("LOBBYWATCH_MCP_HOST", "127.0.0.1")
         port = int(os.getenv("LOBBYWATCH_MCP_PORT", "8000"))
         mcp.settings.host = host
         mcp.settings.port = port
         mcp.run(transport="streamable-http")
     elif transport == "sse":
-        host = os.getenv("LOBBYWATCH_MCP_HOST", "0.0.0.0")
+        host = os.getenv("LOBBYWATCH_MCP_HOST", "127.0.0.1")
         port = int(os.getenv("LOBBYWATCH_MCP_PORT", "8000"))
         mcp.settings.host = host
         mcp.settings.port = port

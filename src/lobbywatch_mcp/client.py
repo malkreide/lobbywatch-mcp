@@ -22,6 +22,7 @@ import time
 import zipfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -57,7 +58,7 @@ class LobbywatchClient:
         self._http = http_client or httpx.AsyncClient(
             timeout=HTTP_TIMEOUT_SECONDS,
             headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
-            follow_redirects=True,
+            follow_redirects=False,
         )
         self._owns_http = http_client is None
 
@@ -123,9 +124,8 @@ class LobbywatchClient:
                     raise
         if resp is None:
             assert last_error is not None
-            raise RuntimeError(
-                f"Lobbywatch dump unreachable after retries: {last_error}"
-            ) from last_error
+            logger.error("Lobbywatch dump unreachable after retries: %r", last_error)
+            raise RuntimeError("Lobbywatch dump unreachable after retries") from last_error
 
         with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
             # The dump contains a few files; we want the essential nested variant.
@@ -137,7 +137,8 @@ class LobbywatchClient:
                     n for n in zf.namelist() if n.endswith(".json") and "parlamentarier_nested" in n
                 ]
                 if not candidates:
-                    raise RuntimeError(f"Dump does not contain expected file. Got: {zf.namelist()}")
+                    logger.error("Dump archive members: %s", zf.namelist())
+                    raise RuntimeError("Lobbywatch dump format unexpected")
                 inner_name = candidates[0]
             with zf.open(inner_name) as src, self._dump_path.open("wb") as dst:
                 dst.write(src.read())
@@ -147,7 +148,8 @@ class LobbywatchClient:
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, list):
-            raise RuntimeError(f"Unexpected dump shape: {type(data).__name__}")
+            logger.error("Unexpected dump shape: %s", type(data).__name__)
+            raise RuntimeError("Lobbywatch dump shape invalid")
         return data
 
     # ------------------------------------------------------------------
@@ -212,8 +214,13 @@ class LobbywatchClient:
             data = await self.api_get(f"table/interessengruppe/aggregated/id/{int(id_or_name)}")
             return data.get("data")
 
-        # Search by name first, then fetch aggregated.
-        search = await self.api_get(f"search/default/{id_or_name}", params={"limit": 5})
+        # Search by name first, then fetch aggregated. URL-encode user input to
+        # prevent path traversal — the host is hardcoded but path segments still
+        # warrant escaping (audit SEC-004).
+        search = await self.api_get(
+            f"search/default/{quote(str(id_or_name), safe='')}",
+            params={"limit": 5},
+        )
         hits = search.get("data") or []
         for hit in hits:
             if hit.get("table") == "interessengruppe":

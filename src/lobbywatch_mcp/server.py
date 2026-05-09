@@ -22,6 +22,7 @@ import logging
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 from lobbywatch_mcp.client import LobbywatchClient
 from lobbywatch_mcp.models import (
@@ -143,7 +144,14 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
 
     # -------- parlamentarier --------
 
-    @mcp.tool()
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Get parliamentarian profile",
+            readOnlyHint=True,
+            idempotentHint=True,
+            openWorldHint=False,
+        )
+    )
     async def get_parlamentarier(name_or_id: str) -> dict[str, Any]:
         """Look up a Swiss federal parliamentarian and return their full profile,
         including all declared/researched interessenbindungen.
@@ -163,7 +171,14 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             parlamentarier=_detail_from_record(record),
         ).model_dump()
 
-    @mcp.tool()
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="List parliamentarian interessenbindungen",
+            readOnlyHint=True,
+            idempotentHint=True,
+            openWorldHint=False,
+        )
+    )
     async def list_interessenbindungen(
         name_or_id: str, nur_hauptberuflich: bool = False, nur_aktiv: bool = True
     ) -> dict[str, Any]:
@@ -197,7 +212,14 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             interessenbindungen=ibs,
         ).model_dump()
 
-    @mcp.tool()
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Search parliamentarians by industry / commission",
+            readOnlyHint=True,
+            idempotentHint=True,
+            openWorldHint=False,
+        )
+    )
     async def search_parlamentarier_nach_branche(
         branche_query: str, kommission: str | None = None, limit: int = 25
     ) -> dict[str, Any]:
@@ -271,7 +293,14 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
 
     # -------- rankings & statistics --------
 
-    @mcp.tool()
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Rank parliamentarians by criterion",
+            readOnlyHint=True,
+            idempotentHint=True,
+            openWorldHint=False,
+        )
+    )
     async def get_ranking(
         kriterium: str = "anzahl_interessenbindungen",
         kommission: str | None = None,
@@ -317,7 +346,14 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             eintraege=eintraege,
         ).model_dump()
 
-    @mcp.tool()
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Compensation-transparency distribution",
+            readOnlyHint=True,
+            idempotentHint=True,
+            openWorldHint=False,
+        )
+    )
     async def get_transparenzquote(kommission: str | None = None) -> dict[str, Any]:
         """Aggregate the verguetungstransparenz_beurteilung values across all
         parliamentarians (or a commission subset) and return the distribution.
@@ -353,7 +389,14 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
 
     # -------- lobby group lookup (live dataIF) --------
 
-    @mcp.tool()
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Fetch lobby group (live dataIF)",
+            readOnlyHint=True,
+            idempotentHint=True,
+            openWorldHint=True,
+        )
+    )
     async def get_lobbygruppe(name_or_id: str) -> dict[str, Any]:
         """Fetch a lobby group (interessengruppe) from the live Lobbywatch
         dataIF, including its connected organisations and parliamentarians.
@@ -385,7 +428,15 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
 
     # -------- cache control --------
 
-    @mcp.tool()
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Force re-download of weekly dump",
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        )
+    )
     async def refresh_dump() -> dict[str, Any]:
         """Force re-download of the weekly Lobbywatch dump. Returns the new
         cache status.
@@ -394,7 +445,14 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
         status = await lb.status()
         return DumpStatusResponse(provenance="weekly_dump", **status).model_dump()
 
-    @mcp.tool()
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Dump cache status",
+            readOnlyHint=True,
+            idempotentHint=True,
+            openWorldHint=False,
+        )
+    )
     async def dump_status() -> dict[str, Any]:
         """Return current dump cache status without forcing a refresh."""
         status = await lb.status()
