@@ -103,15 +103,18 @@ Once connected, try prompts such as:
 
 ## Tools
 
+All tool names use the `lobbywatch_` namespace prefix (since 0.2.0) to
+avoid collisions with sibling portfolio servers.
+
 | Tool | Purpose | Source |
 |---|---|---|
-| `get_parlamentarier(name_or_id)` | Full profile + all conflicts of interest | Dump |
-| `list_interessenbindungen(name_or_id, nur_hauptberuflich, nur_aktiv)` | Filtered mandate list | Dump |
-| `search_parlamentarier_nach_branche(branche_query, kommission, limit)` | Cross-filter by industry and commission | Dump |
-| `get_lobbygruppe(name_or_id)` | Lobby group with connected MPs and organisations | Live dataIF |
-| `get_ranking(kriterium, kommission, partei, limit)` | Top-N by criterion | Dump |
-| `get_transparenzquote(kommission)` | Distribution of compensation transparency labels | Dump |
-| `refresh_dump()` / `dump_status()` | Cache control | Dump |
+| `lobbywatch_get_parlamentarier(name_or_id)` | Full profile + all conflicts of interest | Dump |
+| `lobbywatch_list_interessenbindungen(name_or_id, nur_hauptberuflich, nur_aktiv)` | Filtered mandate list | Dump |
+| `lobbywatch_search_parlamentarier_nach_branche(branche_query, kommission, limit)` | Cross-filter by industry and commission | Dump |
+| `lobbywatch_get_lobbygruppe(name_or_id)` | Lobby group with connected MPs and organisations | Live dataIF |
+| `lobbywatch_get_ranking(kriterium, kommission, partei, limit)` | Top-N by criterion | Dump |
+| `lobbywatch_get_transparenzquote(kommission)` | Distribution of compensation transparency labels | Dump |
+| `lobbywatch_refresh_dump()` / `lobbywatch_dump_status()` | Cache control | Dump |
 
 ## Configuration
 

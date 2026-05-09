@@ -35,7 +35,7 @@ CACHE_DIR = Path(
 HTTP_TIMEOUT_SECONDS = float(os.getenv("LOBBYWATCH_MCP_HTTP_TIMEOUT", "60"))
 
 # User-Agent identifying this client to Lobbywatch server logs.
-USER_AGENT = "lobbywatch-mcp/0.1.0 (+https://github.com/malkreide/lobbywatch-mcp)"
+USER_AGENT = "lobbywatch-mcp/0.2.0 (+https://github.com/malkreide/lobbywatch-mcp)"
 
 # Attribution snippet attached to every response. Non-negotiable: the dataset
 # is licensed CC BY-SA 4.0 and requires credit.

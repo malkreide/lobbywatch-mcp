@@ -101,15 +101,18 @@ Nach dem Verbinden können etwa folgende Prompts verwendet werden:
 
 ## Tools
 
+Alle Tool-Namen tragen seit 0.2.0 das `lobbywatch_`-Namespace-Präfix, um
+Kollisionen mit Schwester-Servern im Portfolio zu vermeiden.
+
 | Tool | Zweck | Quelle |
 |---|---|---|
-| `get_parlamentarier(name_or_id)` | Vollprofil mit allen Interessenbindungen | Dump |
-| `list_interessenbindungen(name_or_id, nur_hauptberuflich, nur_aktiv)` | Gefilterte Mandatsliste | Dump |
-| `search_parlamentarier_nach_branche(branche_query, kommission, limit)` | Kreuzfilter Branche × Kommission | Dump |
-| `get_lobbygruppe(name_or_id)` | Lobbygruppe inkl. verbundener Organisationen & Parlamentarier:innen | Live dataIF |
-| `get_ranking(kriterium, kommission, partei, limit)` | Top-N nach Kriterium | Dump |
-| `get_transparenzquote(kommission)` | Verteilung der Transparenzbewertungen | Dump |
-| `refresh_dump()` / `dump_status()` | Cache-Steuerung | Dump |
+| `lobbywatch_get_parlamentarier(name_or_id)` | Vollprofil mit allen Interessenbindungen | Dump |
+| `lobbywatch_list_interessenbindungen(name_or_id, nur_hauptberuflich, nur_aktiv)` | Gefilterte Mandatsliste | Dump |
+| `lobbywatch_search_parlamentarier_nach_branche(branche_query, kommission, limit)` | Kreuzfilter Branche × Kommission | Dump |
+| `lobbywatch_get_lobbygruppe(name_or_id)` | Lobbygruppe inkl. verbundener Organisationen & Parlamentarier:innen | Live dataIF |
+| `lobbywatch_get_ranking(kriterium, kommission, partei, limit)` | Top-N nach Kriterium | Dump |
+| `lobbywatch_get_transparenzquote(kommission)` | Verteilung der Transparenzbewertungen | Dump |
+| `lobbywatch_refresh_dump()` / `lobbywatch_dump_status()` | Cache-Steuerung | Dump |
 
 ## Konfiguration
 

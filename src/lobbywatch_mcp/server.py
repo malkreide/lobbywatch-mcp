@@ -1,14 +1,17 @@
 """FastMCP server for the Lobbywatch.ch lobby database.
 
-Phase 1 tools (No-Auth-First, CC BY-SA attributed):
+Phase 1 tools (No-Auth-First, CC BY-SA attributed). All tool names use the
+``lobbywatch_`` namespace prefix to avoid collision with sibling portfolio
+servers (audit SEC-022, breaking change in 0.2.0):
 
-    * get_parlamentarier
-    * list_interessenbindungen
-    * search_parlamentarier_nach_branche
-    * get_lobbygruppe            (live dataIF)
-    * get_ranking
-    * get_transparenzquote
-    * refresh_dump
+    * lobbywatch_get_parlamentarier
+    * lobbywatch_list_interessenbindungen
+    * lobbywatch_search_parlamentarier_nach_branche
+    * lobbywatch_get_lobbygruppe            (live dataIF)
+    * lobbywatch_get_ranking
+    * lobbywatch_get_transparenzquote
+    * lobbywatch_refresh_dump
+    * lobbywatch_dump_status
 
 Anchor demo query (Schulamt / KI-Fachgruppe context):
 
@@ -19,10 +22,13 @@ Anchor demo query (Schulamt / KI-Fachgruppe context):
 from __future__ import annotations
 
 import logging
-from typing import Any
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
 from lobbywatch_mcp.client import LobbywatchClient
 from lobbywatch_mcp.models import (
@@ -130,29 +136,68 @@ def _detail_from_record(record: dict[str, Any]) -> ParlamentarierDetail:
 # ---------------------------------------------------------------------------
 
 
+# Common tool input bounds. Centralised so future audits can grep them.
+_RankingKriterium = Literal["anzahl_interessenbindungen", "anzahl_hauptberuflich"]
+_NameOrId = Annotated[str, Field(min_length=1, max_length=200)]
+_OptionalShortString = Annotated[str | None, Field(default=None, max_length=80)]
+_BrancheQuery = Annotated[str, Field(min_length=1, max_length=200)]
+_LimitSearch = Annotated[int, Field(ge=1, le=200)]
+_LimitRanking = Annotated[int, Field(ge=1, le=100)]
+
+
 def build_server(client: LobbywatchClient | None = None) -> FastMCP:
-    """Construct the FastMCP server with all Phase-1 tools registered."""
-    mcp = FastMCP(
+    """Construct the FastMCP server with all Phase-1 tools registered.
+
+    The server uses an ``@asynccontextmanager`` lifespan (audit SDK-001) to
+    own the :class:`LobbywatchClient` lifecycle. When a ``client`` is passed
+    in (test fixtures), the lifespan is a no-op pass-through; when called
+    without an argument (production), the server creates the client on
+    startup and ``aclose()``-s it on shutdown.
+    """
+    # Mutable holder so the lifespan can lazy-initialise + own teardown
+    # while tests pre-fill it via the ``client=`` parameter.
+    state: dict[str, LobbywatchClient | None] = {"client": client}
+    server_owns_client = client is None
+
+    @asynccontextmanager
+    async def lifespan(_server: FastMCP) -> AsyncIterator[dict[str, LobbywatchClient | None]]:
+        if state["client"] is None:
+            state["client"] = LobbywatchClient()
+        try:
+            yield state
+        finally:
+            if server_owns_client and state["client"] is not None:
+                await state["client"].aclose()
+                state["client"] = None
+
+    mcp: FastMCP = FastMCP(
         name="lobbywatch-mcp",
+        lifespan=lifespan,
         instructions=(
             "Lobbywatch.ch MCP server — conflicts of interest of Swiss parliamentarians. "
             "Data is community-researched, updated weekly, and licensed CC BY-SA 4.0. "
             "Attribution is included in every response."
         ),
     )
-    lb = client or LobbywatchClient()
+
+    def lb() -> LobbywatchClient:
+        c = state["client"]
+        if c is None:
+            raise RuntimeError("LobbywatchClient not initialised; lifespan not started")
+        return c
 
     # -------- parlamentarier --------
 
     @mcp.tool(
+        name="lobbywatch_get_parlamentarier",
         annotations=ToolAnnotations(
             title="Get parliamentarian profile",
             readOnlyHint=True,
             idempotentHint=True,
             openWorldHint=False,
-        )
+        ),
     )
-    async def get_parlamentarier(name_or_id: str) -> dict[str, Any]:
+    async def get_parlamentarier(name_or_id: _NameOrId) -> dict[str, Any]:
         """Look up a Swiss federal parliamentarian and return their full profile,
         including all declared/researched interessenbindungen.
 
@@ -160,7 +205,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             name_or_id: Either the numeric Lobbywatch ID (as string) or a name.
                 Name matching is fuzzy — partial last names work.
         """
-        record = await lb.find_parlamentarier(name_or_id)
+        record = await lb().find_parlamentarier(name_or_id)
         if record is None:
             return ParlamentarierResponse(
                 provenance="weekly_dump",
@@ -172,15 +217,16 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
         ).model_dump()
 
     @mcp.tool(
+        name="lobbywatch_list_interessenbindungen",
         annotations=ToolAnnotations(
             title="List parliamentarian interessenbindungen",
             readOnlyHint=True,
             idempotentHint=True,
             openWorldHint=False,
-        )
+        ),
     )
     async def list_interessenbindungen(
-        name_or_id: str, nur_hauptberuflich: bool = False, nur_aktiv: bool = True
+        name_or_id: _NameOrId, nur_hauptberuflich: bool = False, nur_aktiv: bool = True
     ) -> dict[str, Any]:
         """Return the list of interessenbindungen (conflicts of interest) for one
         parliamentarian, optionally restricted to full-time or currently-active
@@ -191,7 +237,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             nur_hauptberuflich: If True, only main-occupation mandates.
             nur_aktiv: If True, drop mandates with an end date (bis) set.
         """
-        record = await lb.find_parlamentarier(name_or_id)
+        record = await lb().find_parlamentarier(name_or_id)
         if record is None:
             return InteressenbindungenResponse(
                 provenance="weekly_dump",
@@ -213,15 +259,18 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
         ).model_dump()
 
     @mcp.tool(
+        name="lobbywatch_search_parlamentarier_nach_branche",
         annotations=ToolAnnotations(
             title="Search parliamentarians by industry / commission",
             readOnlyHint=True,
             idempotentHint=True,
             openWorldHint=False,
-        )
+        ),
     )
     async def search_parlamentarier_nach_branche(
-        branche_query: str, kommission: str | None = None, limit: int = 25
+        branche_query: _BrancheQuery,
+        kommission: Annotated[str | None, Field(default=None, max_length=80)] = None,
+        limit: _LimitSearch = 25,
     ) -> dict[str, Any]:
         """Find parliamentarians with interessenbindungen matching a search term
         against the linked organisation's name, alias, and (when available)
@@ -240,10 +289,10 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
                 "Pharma", "Bank", "Krankenkasse", "Bildung".
             kommission: Commission abbreviation to restrict the result to,
                 e.g. "WBK-N" for the education commission of the National Council.
-            limit: Max number of {parlamentarier, ib} pairs returned.
+            limit: Max number of {parlamentarier, ib} pairs returned (1–200).
         """
         q = branche_query.strip().lower()
-        records = await lb.all_parlamentarier()
+        records = await lb().all_parlamentarier()
         hits: list[dict[str, Any]] = []
 
         for r in records:
@@ -294,18 +343,19 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
     # -------- rankings & statistics --------
 
     @mcp.tool(
+        name="lobbywatch_get_ranking",
         annotations=ToolAnnotations(
             title="Rank parliamentarians by criterion",
             readOnlyHint=True,
             idempotentHint=True,
             openWorldHint=False,
-        )
+        ),
     )
     async def get_ranking(
-        kriterium: str = "anzahl_interessenbindungen",
-        kommission: str | None = None,
-        partei: str | None = None,
-        limit: int = 10,
+        kriterium: _RankingKriterium = "anzahl_interessenbindungen",
+        kommission: Annotated[str | None, Field(default=None, max_length=80)] = None,
+        partei: Annotated[str | None, Field(default=None, max_length=80)] = None,
+        limit: _LimitRanking = 10,
     ) -> dict[str, Any]:
         """Rank parliamentarians by a criterion.
 
@@ -314,13 +364,9 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
                 "anzahl_hauptberuflich".
             kommission: Optional commission abbreviation filter (e.g. "WBK-N").
             partei: Optional party filter (e.g. "SP", "SVP", "Mitte").
-            limit: Top-N to return.
+            limit: Top-N to return (1–100).
         """
-        allowed = {"anzahl_interessenbindungen", "anzahl_hauptberuflich"}
-        if kriterium not in allowed:
-            raise ValueError(f"kriterium must be one of {sorted(allowed)}")
-
-        records = await lb.all_parlamentarier()
+        records = await lb().all_parlamentarier()
         summaries = [_summary_from_record(r) for r in records]
 
         if kommission:
@@ -347,21 +393,24 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
         ).model_dump()
 
     @mcp.tool(
+        name="lobbywatch_get_transparenzquote",
         annotations=ToolAnnotations(
             title="Compensation-transparency distribution",
             readOnlyHint=True,
             idempotentHint=True,
             openWorldHint=False,
-        )
+        ),
     )
-    async def get_transparenzquote(kommission: str | None = None) -> dict[str, Any]:
+    async def get_transparenzquote(
+        kommission: Annotated[str | None, Field(default=None, max_length=80)] = None,
+    ) -> dict[str, Any]:
         """Aggregate the verguetungstransparenz_beurteilung values across all
         parliamentarians (or a commission subset) and return the distribution.
 
         Useful to answer: 'How transparent is the education commission on
         compensation disclosure?'
         """
-        records = await lb.all_parlamentarier()
+        records = await lb().all_parlamentarier()
         if kommission:
             k = kommission.lower()
             records = [r for r in records if k in {x.lower() for x in _split_kommissionen(r)}]
@@ -390,20 +439,21 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
     # -------- lobby group lookup (live dataIF) --------
 
     @mcp.tool(
+        name="lobbywatch_get_lobbygruppe",
         annotations=ToolAnnotations(
             title="Fetch lobby group (live dataIF)",
             readOnlyHint=True,
             idempotentHint=True,
             openWorldHint=True,
-        )
+        ),
     )
-    async def get_lobbygruppe(name_or_id: str) -> dict[str, Any]:
+    async def get_lobbygruppe(name_or_id: _NameOrId) -> dict[str, Any]:
         """Fetch a lobby group (interessengruppe) from the live Lobbywatch
         dataIF, including its connected organisations and parliamentarians.
 
         Uses the live REST API since this endpoint returns fresh data.
         """
-        data = await lb.fetch_lobbygruppe(name_or_id)
+        data = await lb().fetch_lobbygruppe(name_or_id)
         if data is None:
             return LobbygruppeResponse(provenance="dataIF_live").model_dump()
 
@@ -429,33 +479,35 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
     # -------- cache control --------
 
     @mcp.tool(
+        name="lobbywatch_refresh_dump",
         annotations=ToolAnnotations(
             title="Force re-download of weekly dump",
             readOnlyHint=False,
             destructiveHint=False,
             idempotentHint=True,
             openWorldHint=True,
-        )
+        ),
     )
     async def refresh_dump() -> dict[str, Any]:
         """Force re-download of the weekly Lobbywatch dump. Returns the new
         cache status.
         """
-        await lb.ensure_dump_loaded(force=True)
-        status = await lb.status()
+        await lb().ensure_dump_loaded(force=True)
+        status = await lb().status()
         return DumpStatusResponse(provenance="weekly_dump", **status).model_dump()
 
     @mcp.tool(
+        name="lobbywatch_dump_status",
         annotations=ToolAnnotations(
             title="Dump cache status",
             readOnlyHint=True,
             idempotentHint=True,
             openWorldHint=False,
-        )
+        ),
     )
     async def dump_status() -> dict[str, Any]:
         """Return current dump cache status without forcing a refresh."""
-        status = await lb.status()
+        status = await lb().status()
         return DumpStatusResponse(provenance="weekly_dump", **status).model_dump()
 
     return mcp

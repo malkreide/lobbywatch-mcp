@@ -18,7 +18,7 @@ async def _call_tool(mcp, name: str, arguments: dict) -> dict:
 
 async def test_get_parlamentarier_by_name(primed_client: LobbywatchClient) -> None:
     mcp = build_server(client=primed_client)
-    payload = await _call_tool(mcp, "get_parlamentarier", {"name_or_id": "Mustermann"})
+    payload = await _call_tool(mcp, "lobbywatch_get_parlamentarier", {"name_or_id": "Mustermann"})
     assert payload["parlamentarier"]["anzeige_name"] == "Mustermann, Anna"
     assert "Lobbywatch.ch" in payload["source"]  # attribution present
 
@@ -29,7 +29,7 @@ async def test_list_interessenbindungen_only_hauptberuflich(
     mcp = build_server(client=primed_client)
     payload = await _call_tool(
         mcp,
-        "list_interessenbindungen",
+        "lobbywatch_list_interessenbindungen",
         {"name_or_id": "1", "nur_hauptberuflich": True},
     )
     assert payload["count"] == 1
@@ -39,7 +39,7 @@ async def test_list_interessenbindungen_only_hauptberuflich(
 async def test_search_nach_branche_bildung(primed_client: LobbywatchClient) -> None:
     mcp = build_server(client=primed_client)
     payload = await _call_tool(
-        mcp, "search_parlamentarier_nach_branche", {"branche_query": "Bildung"}
+        mcp, "lobbywatch_search_parlamentarier_nach_branche", {"branche_query": "Bildung"}
     )
     assert payload["count"] == 1
     assert payload["treffer"][0]["parlamentarier"]["anzeige_name"] == "Mustermann, Anna"
@@ -49,7 +49,7 @@ async def test_search_with_kommission_filter(primed_client: LobbywatchClient) ->
     mcp = build_server(client=primed_client)
     payload = await _call_tool(
         mcp,
-        "search_parlamentarier_nach_branche",
+        "lobbywatch_search_parlamentarier_nach_branche",
         {"branche_query": "Finanz", "kommission": "WBK-N"},
     )
     assert payload["count"] == 0  # finance person is in FK-N, not WBK-N
@@ -57,7 +57,7 @@ async def test_search_with_kommission_filter(primed_client: LobbywatchClient) ->
 
 async def test_ranking_by_ib_count(primed_client: LobbywatchClient) -> None:
     mcp = build_server(client=primed_client)
-    payload = await _call_tool(mcp, "get_ranking", {"limit": 5})
+    payload = await _call_tool(mcp, "lobbywatch_get_ranking", {"limit": 5})
     assert payload["eintraege"][0]["parlamentarier"]["anzeige_name"] == "Mustermann, Anna"
     assert payload["eintraege"][0]["wert"] == 2
 
@@ -66,7 +66,7 @@ async def test_ranking_rejects_invalid_criterion(primed_client: LobbywatchClient
     mcp = build_server(client=primed_client)
     # ValueError raised in the tool surfaces as a FastMCP ToolError.
     try:
-        await _call_tool(mcp, "get_ranking", {"kriterium": "bogus"})
+        await _call_tool(mcp, "lobbywatch_get_ranking", {"kriterium": "bogus"})
     except Exception as exc:
         assert "kriterium" in str(exc).lower() or "bogus" in str(exc).lower()
         return
@@ -75,6 +75,39 @@ async def test_ranking_rejects_invalid_criterion(primed_client: LobbywatchClient
 
 async def test_transparenzquote_wbk_n(primed_client: LobbywatchClient) -> None:
     mcp = build_server(client=primed_client)
-    payload = await _call_tool(mcp, "get_transparenzquote", {"kommission": "WBK-N"})
+    payload = await _call_tool(mcp, "lobbywatch_get_transparenzquote", {"kommission": "WBK-N"})
     assert payload["total"] == 2  # Anna + Claire
     assert payload["nach_bewertung"]["gut"] == 2
+
+
+async def test_search_rejects_overlong_query(primed_client: LobbywatchClient) -> None:
+    """SEC-018: branche_query is bound to <=200 chars."""
+    mcp = build_server(client=primed_client)
+    try:
+        await _call_tool(
+            mcp,
+            "lobbywatch_search_parlamentarier_nach_branche",
+            {"branche_query": "x" * 1000},
+        )
+    except Exception:
+        return
+    raise AssertionError("Expected an error for over-long branche_query")
+
+
+async def test_ranking_rejects_overlimit(primed_client: LobbywatchClient) -> None:
+    """SEC-018: limit is bound to 1..100 for ranking."""
+    mcp = build_server(client=primed_client)
+    try:
+        await _call_tool(mcp, "lobbywatch_get_ranking", {"limit": 10_000})
+    except Exception:
+        return
+    raise AssertionError("Expected an error for over-large limit")
+
+
+async def test_tools_use_lobbywatch_namespace(primed_client: LobbywatchClient) -> None:
+    """SEC-022: every registered tool name carries the lobbywatch_ prefix."""
+    mcp = build_server(client=primed_client)
+    tools = await mcp.list_tools()
+    assert tools, "expected at least one tool"
+    bad = [t.name for t in tools if not t.name.startswith("lobbywatch_")]
+    assert not bad, f"unprefixed tools: {bad}"

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-09
+
+### Changed (Breaking)
+- **Tool names now carry a `lobbywatch_` namespace prefix** (audit SEC-022).
+  All eight tools were renamed:
+  `get_parlamentarier` → `lobbywatch_get_parlamentarier`,
+  `list_interessenbindungen` → `lobbywatch_list_interessenbindungen`,
+  `search_parlamentarier_nach_branche` → `lobbywatch_search_parlamentarier_nach_branche`,
+  `get_lobbygruppe` → `lobbywatch_get_lobbygruppe`,
+  `get_ranking` → `lobbywatch_get_ranking`,
+  `get_transparenzquote` → `lobbywatch_get_transparenzquote`,
+  `refresh_dump` → `lobbywatch_refresh_dump`,
+  `dump_status` → `lobbywatch_dump_status`.
+  Existing clients referencing the old names must be updated.
+
+### Added
+- FastMCP `lifespan` context manager owns the `LobbywatchClient` lifecycle
+  (audit SDK-001). The shared `httpx.AsyncClient` is now closed cleanly on
+  server shutdown; previously it leaked at process exit.
+- Input validation at tool boundaries (audit SEC-018):
+  `name_or_id` and `branche_query` bound to 1–200 chars; `kommission` /
+  `partei` bound to ≤80 chars; `limit` bounded to 1–200 (search) /
+  1–100 (ranking); `kriterium` is now a `Literal` enum so invalid values
+  are rejected at the schema layer instead of via runtime `ValueError`.
+
+### Changed
+- `mcp[cli]` dependency is now bounded `<2.0.0` (audit ARCH-012).
+- `USER_AGENT` bumped to `lobbywatch-mcp/0.2.0`.
+
 ## [0.1.0] - 2026-04-21
 
 ### Added
