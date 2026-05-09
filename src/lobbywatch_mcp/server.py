@@ -33,7 +33,9 @@ from mcp.types import INTERNAL_ERROR, ErrorData, ToolAnnotations
 from pydantic import Field
 
 from lobbywatch_mcp.client import LobbywatchClient
+from lobbywatch_mcp.config import ATTRIBUTION
 from lobbywatch_mcp.models import (
+    BrancheSearchHit,
     BrancheSearchResponse,
     DumpStatusResponse,
     Interessenbindung,
@@ -42,6 +44,7 @@ from lobbywatch_mcp.models import (
     LobbygruppeResponse,
     ParlamentarierDetail,
     ParlamentarierResponse,
+    ParlamentarierSuggestion,
     ParlamentarierSummary,
     RankingEntry,
     RankingResponse,
@@ -225,24 +228,42 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             openWorldHint=False,
         ),
     )
-    async def get_parlamentarier(name_or_id: _NameOrId) -> dict[str, Any]:
+    async def get_parlamentarier(name_or_id: _NameOrId) -> ParlamentarierResponse:
         """Look up a Swiss federal parliamentarian and return their full profile,
         including all declared/researched interessenbindungen.
+
+        On a fuzzy miss, the response surfaces near-miss candidates so the
+        LLM can prompt the user with "did you mean…?" suggestions instead of
+        treating the empty result as authoritative (audit ARCH-003).
 
         Args:
             name_or_id: Either the numeric Lobbywatch ID (as string) or a name.
                 Name matching is fuzzy — partial last names work.
+
+        Use cases:
+            - "Show me Anna Mustermann's full lobbying profile"
+            - "What conflicts of interest does parliamentarian #42 declare?"
+            - "Look up Wehrli — give me everything you have"
         """
         record = await _coerce_upstream(lb().find_parlamentarier(name_or_id))
         if record is None:
+            suggestions = await _coerce_upstream(lb().find_candidates(str(name_or_id)))
             return ParlamentarierResponse(
                 provenance="weekly_dump",
                 parlamentarier=None,
-            ).model_dump()
+                suggestions=[
+                    ParlamentarierSuggestion(
+                        id=int(r.get("id") or 0),
+                        anzeige_name=r.get("anzeige_name") or "",
+                        score=score,
+                    )
+                    for r, score in suggestions
+                ],
+            )
         return ParlamentarierResponse(
             provenance="weekly_dump",
             parlamentarier=_detail_from_record(record),
-        ).model_dump()
+        )
 
     @mcp.tool(
         name="lobbywatch_list_interessenbindungen",
@@ -255,23 +276,40 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
     )
     async def list_interessenbindungen(
         name_or_id: _NameOrId, nur_hauptberuflich: bool = False, nur_aktiv: bool = True
-    ) -> dict[str, Any]:
+    ) -> InteressenbindungenResponse:
         """Return the list of interessenbindungen (conflicts of interest) for one
         parliamentarian, optionally restricted to full-time or currently-active
         mandates.
+
+        On a fuzzy miss, near-miss candidates are returned in
+        ``suggestions`` (audit ARCH-003).
 
         Args:
             name_or_id: ID or name (fuzzy).
             nur_hauptberuflich: If True, only main-occupation mandates.
             nur_aktiv: If True, drop mandates with an end date (bis) set.
+
+        Use cases:
+            - "Which active mandates does Jositsch hold today?"
+            - "List Anna Mustermann's full-time mandates only"
+            - "Give me every IB ever declared by parliamentarian #1"
         """
         record = await _coerce_upstream(lb().find_parlamentarier(name_or_id))
         if record is None:
+            suggestions = await _coerce_upstream(lb().find_candidates(str(name_or_id)))
             return InteressenbindungenResponse(
                 provenance="weekly_dump",
                 parlamentarier_id=-1,
                 count=0,
-            ).model_dump()
+                suggestions=[
+                    ParlamentarierSuggestion(
+                        id=int(r.get("id") or 0),
+                        anzeige_name=r.get("anzeige_name") or "",
+                        score=score,
+                    )
+                    for r, score in suggestions
+                ],
+            )
 
         ibs_raw = record.get("interessenbindungen") or []
         ibs = [_ib_to_model(ib) for ib in ibs_raw]
@@ -284,7 +322,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             parlamentarier_id=int(record.get("id") or 0),
             count=len(ibs),
             interessenbindungen=ibs,
-        ).model_dump()
+        )
 
     @mcp.tool(
         name="lobbywatch_search_parlamentarier_nach_branche",
@@ -299,7 +337,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
         branche_query: _BrancheQuery,
         kommission: Annotated[str | None, Field(default=None, max_length=80)] = None,
         limit: _LimitSearch = 25,
-    ) -> dict[str, Any]:
+    ) -> BrancheSearchResponse:
         """Find parliamentarians with interessenbindungen matching a search term
         against the linked organisation's name, alias, and (when available)
         branche field. Optional commission filter.
@@ -318,10 +356,15 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             kommission: Commission abbreviation to restrict the result to,
                 e.g. "WBK-N" for the education commission of the National Council.
             limit: Max number of {parlamentarier, ib} pairs returned (1–200).
+
+        Use cases:
+            - "Which WBK-N members hold mandates in the publishing industry?"
+            - "Cross-filter Pharma × FK-N to surface health-policy lobbyists"
+            - "List every parliamentarian with a 'Krankenkasse' connection"
         """
         q = branche_query.strip().lower()
         records = await _coerce_upstream(lb().all_parlamentarier())
-        hits: list[dict[str, Any]] = []
+        hits: list[BrancheSearchHit] = []
 
         for r in records:
             if kommission:
@@ -351,10 +394,10 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
                 haystack = " | ".join(haystack_parts).lower()
                 if q in haystack:
                     hits.append(
-                        {
-                            "parlamentarier": _summary_from_record(r).model_dump(),
-                            "interessenbindung": _ib_to_model(ib).model_dump(),
-                        }
+                        BrancheSearchHit(
+                            parlamentarier=_summary_from_record(r),
+                            interessenbindung=_ib_to_model(ib),
+                        )
                     )
                     if len(hits) >= limit:
                         break
@@ -366,7 +409,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             query=branche_query,
             count=len(hits),
             treffer=hits,
-        ).model_dump()
+        )
 
     # -------- rankings & statistics --------
 
@@ -384,7 +427,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
         kommission: Annotated[str | None, Field(default=None, max_length=80)] = None,
         partei: Annotated[str | None, Field(default=None, max_length=80)] = None,
         limit: _LimitRanking = 10,
-    ) -> dict[str, Any]:
+    ) -> RankingResponse:
         """Rank parliamentarians by a criterion.
 
         Args:
@@ -393,6 +436,11 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             kommission: Optional commission abbreviation filter (e.g. "WBK-N").
             partei: Optional party filter (e.g. "SP", "SVP", "Mitte").
             limit: Top-N to return (1–100).
+
+        Use cases:
+            - "Top 10 SP MPs by total mandate count"
+            - "Which Mitte-Fraktion members have the most full-time mandates?"
+            - "Rank WBK-N by IB count — who's most involved?"
         """
         records = await _coerce_upstream(lb().all_parlamentarier())
         summaries = [_summary_from_record(r) for r in records]
@@ -418,7 +466,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             provenance="weekly_dump",
             kriterium=kriterium,
             eintraege=eintraege,
-        ).model_dump()
+        )
 
     @mcp.tool(
         name="lobbywatch_get_transparenzquote",
@@ -431,12 +479,17 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
     )
     async def get_transparenzquote(
         kommission: Annotated[str | None, Field(default=None, max_length=80)] = None,
-    ) -> dict[str, Any]:
+    ) -> TransparenzResponse:
         """Aggregate the verguetungstransparenz_beurteilung values across all
         parliamentarians (or a commission subset) and return the distribution.
 
         Useful to answer: 'How transparent is the education commission on
         compensation disclosure?'
+
+        Use cases:
+            - "How transparent is the FK-N on compensation disclosure?"
+            - "Distribution of transparency labels across the whole parliament"
+            - "Compare WBK-N transparency vs the council average"
         """
         records = await _coerce_upstream(lb().all_parlamentarier())
         if kommission:
@@ -462,7 +515,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             total=total,
             nach_bewertung=buckets,
             quote_ausreichend=quote,
-        ).model_dump()
+        )
 
     # -------- lobby group lookup (live dataIF) --------
 
@@ -475,15 +528,20 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             openWorldHint=True,
         ),
     )
-    async def get_lobbygruppe(name_or_id: _NameOrId) -> dict[str, Any]:
+    async def get_lobbygruppe(name_or_id: _NameOrId) -> LobbygruppeResponse:
         """Fetch a lobby group (interessengruppe) from the live Lobbywatch
         dataIF, including its connected organisations and parliamentarians.
 
         Uses the live REST API since this endpoint returns fresh data.
+
+        Use cases:
+            - "Look up 'economiesuisse' and list connected MPs"
+            - "Who's affiliated with the lobby group #42?"
+            - "Show me all parliamentarians linked to the pharma lobby"
         """
         data = await _coerce_upstream(lb().fetch_lobbygruppe(name_or_id))
         if data is None:
-            return LobbygruppeResponse(provenance="dataIF_live").model_dump()
+            return LobbygruppeResponse(provenance="dataIF_live")
 
         # Normalise the nested payload into a Lobbygruppe model.
         branche = data.get("branche")
@@ -502,7 +560,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
         return LobbygruppeResponse(
             provenance="dataIF_live",
             lobbygruppe=model,
-        ).model_dump()
+        )
 
     # -------- cache control --------
 
@@ -516,13 +574,17 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             openWorldHint=True,
         ),
     )
-    async def refresh_dump(ctx: Context) -> dict[str, Any]:
+    async def refresh_dump(ctx: Context) -> DumpStatusResponse:
         """Force re-download of the weekly Lobbywatch dump. Returns the new
         cache status.
 
         Reports progress via the MCP Context (audit SDK-003) so long-running
         downloads (~17 MB compressed) surface useful feedback to the calling
         LLM and operator.
+
+        Use cases:
+            - "Force a fresh download — the data looks stale"
+            - "I just heard about a new declaration — refresh and re-check"
         """
         await ctx.info("Refreshing Lobbywatch weekly dump...")
         await _coerce_upstream(lb().ensure_dump_loaded(force=True))
@@ -531,7 +593,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             f"Dump refreshed: {status['record_count']} parliamentarians "
             f"(cached at {status['cached_at']})"
         )
-        return DumpStatusResponse(provenance="weekly_dump", **status).model_dump()
+        return DumpStatusResponse(provenance="weekly_dump", **status)
 
     @mcp.tool(
         name="lobbywatch_dump_status",
@@ -542,9 +604,66 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
             openWorldHint=False,
         ),
     )
-    async def dump_status() -> dict[str, Any]:
-        """Return current dump cache status without forcing a refresh."""
+    async def dump_status() -> DumpStatusResponse:
+        """Return current dump cache status without forcing a refresh.
+
+        Use cases:
+            - "How fresh is the cached data right now?"
+            - "When was the dump last loaded?"
+        """
         status = await lb().status()
-        return DumpStatusResponse(provenance="weekly_dump", **status).model_dump()
+        return DumpStatusResponse(provenance="weekly_dump", **status)
+
+    # -------- resources & prompts (audit ARCH-008) --------
+
+    @mcp.resource(
+        "lobbywatch://attribution",
+        name="lobbywatch-attribution",
+        title="Lobbywatch.ch CC BY-SA 4.0 attribution",
+        description=(
+            "The full attribution string mandated by the Lobbywatch.ch "
+            "data licence. Every tool response embeds this; this resource "
+            "lets clients display it as standalone metadata."
+        ),
+        mime_type="text/plain",
+    )
+    def attribution_resource() -> str:
+        return ATTRIBUTION
+
+    @mcp.prompt(
+        name="lobbywatch_anchor_demo",
+        title="Anchor demo: WBK-N education-industry conflicts",
+        description=(
+            "The canonical demo query for the Schulamt / KI-Fachgruppe "
+            "context, parameterised by branche. Useful as an opening prompt "
+            "in conversational sessions."
+        ),
+    )
+    def anchor_demo_prompt(branche: str = "Bildung") -> str:
+        return (
+            f"Welche Mitglieder der WBK-N haben Interessenbindungen zu "
+            f"{branche}-bezogenen Organisationen, und wie ist ihre "
+            f"Vergütungstransparenz-Bewertung? Bitte zuerst "
+            f"`lobbywatch_search_parlamentarier_nach_branche` mit "
+            f"branche_query='{branche}' und kommission='WBK-N' aufrufen, "
+            f"dann pro Treffer `lobbywatch_get_parlamentarier` für die "
+            f"Transparenzbewertung."
+        )
+
+    @mcp.prompt(
+        name="lobbywatch_top_lobbyists_by_party",
+        title="Top lobbyists in a party",
+        description=(
+            "Ranks parliamentarians of a given party by total mandate "
+            "count. Useful for transparency-research workflows."
+        ),
+    )
+    def top_lobbyists_prompt(partei: str = "SP") -> str:
+        return (
+            f"Gib mir die Top-10 Parlamentarier:innen der {partei}-Fraktion "
+            f"nach Anzahl Interessenbindungen via "
+            f"`lobbywatch_get_ranking` (kriterium='anzahl_interessenbindungen', "
+            f"partei='{partei}', limit=10), inkl. Vergütungstransparenz."
+        )
 
     return mcp

@@ -43,6 +43,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HTTP/SSE transport now runs through `uvicorn.run` directly on
   `mcp.streamable_http_app()` / `mcp.sse_app()` so middleware can be
   attached. `stdio` transport is unchanged.
+- All eight tools now declare typed Pydantic return models instead of
+  `dict[str, Any]` (audit SDK-002). FastMCP synthesises a real JSON
+  schema for each tool's output, giving downstream clients (Inspector,
+  custom UIs, schema-aware LLMs) field-level type information instead
+  of opaque `additionalProperties: true`. Wire format is unchanged.
+- Tool docstrings now carry `Use cases:` blocks (audit ARCH-002) with
+  three concrete example queries each, sharpening LLM tool selection.
+
+### Added
+- Fuzzy-match suggestions on missed lookups (audit ARCH-003).
+  `lobbywatch_get_parlamentarier` and `lobbywatch_list_interessenbindungen`
+  now return up to three near-miss candidates (rapidfuzz WRatio in
+  [50, 70)) in a new `suggestions` field, so the LLM can offer
+  "did you mean…?" instead of treating the empty result as truth. New
+  `LobbywatchClient.find_candidates()` powers this.
+- MCP Resources and Prompts (audit ARCH-008):
+  - Resource `lobbywatch://attribution` (text/plain) — the CC BY-SA 4.0
+    licence string for clients that want to display it standalone.
+  - Prompt `lobbywatch_anchor_demo` — parameterised by `branche`, scaffolds
+    the canonical Schulamt / KI-Fachgruppe demo query.
+  - Prompt `lobbywatch_top_lobbyists_by_party` — parameterised by `partei`,
+    surfaces the top-10 ranking with transparency metadata.
 
 ## [0.2.0] - 2026-05-09
 
