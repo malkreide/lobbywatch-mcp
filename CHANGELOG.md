@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `SECURITY.md` / `SECURITY.de.md` — security posture, Lethal Trifecta
+  assessment, accepted-risk decisions (SEC-014, SEC-015) and vulnerability
+  reporting process, aligned with the portfolio standard.
+- `CONTRIBUTING.de.md` — German contributing guide, linked from the English
+  `CONTRIBUTING.md`.
+
+### Changed
+- Repo docs now follow the portfolio convention of English-primary `.md`
+  files with linked German `.de.md` counterparts: `CONTRIBUTING.md` is now
+  English-only and links to `CONTRIBUTING.de.md` (previously a single combined
+  bilingual file). READMEs gained a Security section.
+- `LICENSE` copyright holder updated to "Hayal Oezkan".
+
 ## [0.3.1] - 2026-05-10
 
 Documentation + release-pipeline catch-up. No functional code changes

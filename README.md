@@ -210,6 +210,11 @@ lobbywatch-mcp/
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Security
+
+See [SECURITY.md](SECURITY.md) for the security posture, accepted-risk
+decisions, and how to report a vulnerability.
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md).
