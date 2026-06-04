@@ -194,7 +194,12 @@ lobbywatch-mcp/
 
 ## Beitragen
 
-Siehe [CONTRIBUTING.md](CONTRIBUTING.md).
+Siehe [CONTRIBUTING.de.md](CONTRIBUTING.de.md).
+
+## Sicherheit
+
+Siehe [SECURITY.de.md](SECURITY.de.md) für die Sicherheits-Posture, die
+akzeptierten Risiken und wie eine Schwachstelle gemeldet wird.
 
 ## Changelog
 
