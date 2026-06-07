@@ -65,6 +65,7 @@ obs = [
 lobbywatch-mcp = "lobbywatch_mcp.__main__:main"
 
 [project.urls]
+"mcp-name" = "io.github.malkreide/lobbywatch-mcp"
 Homepage = "https://github.com/malkreide/lobbywatch-mcp"
 Repository = "https://github.com/malkreide/lobbywatch-mcp"
 Issues = "https://github.com/malkreide/lobbywatch-mcp/issues"
