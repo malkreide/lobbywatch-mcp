@@ -84,3 +84,6 @@ jobs:
           # No `password:` — OIDC handles auth.
           # No `repository-url:` — defaults to upload.pypi.org.
           print-hash: true
+          # Make re-runs idempotent: a second approval or partial upload
+          # must not fail with "File already exists" once a version is live.
+          skip-existing: true
