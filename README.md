@@ -230,3 +230,5 @@ MIT License — see [LICENSE](LICENSE). Data CC BY-SA 4.0 — see [LICENSE](LICE
 ---
 
 *Part of the [Swiss Public Data MCP Portfolio](https://github.com/malkreide).*
+
+<!-- mcp-name: io.github.malkreide/lobbywatch-mcp -->
