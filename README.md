@@ -232,3 +232,22 @@ MIT License — see [LICENSE](LICENSE). Data CC BY-SA 4.0 — see [LICENSE](LICE
 *Part of the [Swiss Public Data MCP Portfolio](https://github.com/malkreide).*
 
 <!-- mcp-name: io.github.malkreide/lobbywatch-mcp -->
+
+<!-- BEGIN GENERATED: install -->
+## Installation
+
+Run via [`uv`](https://docs.astral.sh/uv/)'s `uvx` — no clone or manual install needed. Add to your MCP client config (`mcpServers` for Claude Desktop, Cursor and Windsurf; use a top-level `servers` key for VS Code in `.vscode/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "lobbywatch-mcp": {
+      "command": "uvx",
+      "args": [
+        "lobbywatch-mcp"
+      ]
+    }
+  }
+}
+```
+<!-- END GENERATED: install -->
