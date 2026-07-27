@@ -23,6 +23,10 @@ Which members of the National Council's Education Commission have declared confl
 
 [→ More use cases by audience →](EXAMPLES.md)
 
+### Demo
+
+![Demo: Claude using lobbywatch_search_parlamentarier_nach_branche and lobbywatch_get_transparenzquote](docs/assets/demo.svg)
+
 ---
 
 ## Overview

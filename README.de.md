@@ -21,6 +21,10 @@
 
 [→ Weitere Anwendungsbeispiele nach Zielgruppe →](EXAMPLES.md)
 
+### Demo
+
+![Demo: Claude nutzt lobbywatch_search_parlamentarier_nach_branche und lobbywatch_get_transparenzquote](docs/assets/demo.svg)
+
 ---
 
 ## Übersicht
