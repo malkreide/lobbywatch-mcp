@@ -6,7 +6,9 @@ Data © Lobbywatch.ch, licensed CC BY-SA 4.0.
 Code licensed MIT.
 """
 
-__version__ = "0.1.0"
+from lobbywatch_mcp._version import PACKAGE_VERSION
+
+__version__ = PACKAGE_VERSION
 __all__ = ["LobbywatchClient", "build_server"]
 
 from lobbywatch_mcp.client import LobbywatchClient

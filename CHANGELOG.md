@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **User-Agent no longer reports a stale version.** Three numbers had drifted
+  apart: `pyproject.toml` said `0.3.4`, `__init__.__version__` said `0.1.0`, and
+  `config.USER_AGENT` said `0.3.1` — the value Lobbywatch's server logs actually
+  saw. The version now comes from the installed distribution metadata
+  (`importlib.metadata`, generated from `pyproject.toml`) via a new
+  `_version.py`, and the User-Agent is derived from it. Guarded by
+  `tests/test_version.py`.
+
 ### Added
 - `SECURITY.md` / `SECURITY.de.md` — security posture, Lethal Trifecta
   assessment, accepted-risk decisions (SEC-014, SEC-015) and vulnerability

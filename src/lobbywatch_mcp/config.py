@@ -9,6 +9,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from lobbywatch_mcp._version import PACKAGE_VERSION
+
 # Primary source: weekly aggregated JSON dump (reliable).
 DUMP_URL = (
     "https://cms.lobbywatch.ch/sites/lobbywatch.ch/files/exports/"
@@ -35,7 +37,7 @@ CACHE_DIR = Path(
 HTTP_TIMEOUT_SECONDS = float(os.getenv("LOBBYWATCH_MCP_HTTP_TIMEOUT", "60"))
 
 # User-Agent identifying this client to Lobbywatch server logs.
-USER_AGENT = "lobbywatch-mcp/0.3.1 (+https://github.com/malkreide/lobbywatch-mcp)"
+USER_AGENT = f"lobbywatch-mcp/{PACKAGE_VERSION} (+https://github.com/malkreide/lobbywatch-mcp)"
 
 # Attribution snippet attached to every response. Non-negotiable: the dataset
 # is licensed CC BY-SA 4.0 and requires credit.
