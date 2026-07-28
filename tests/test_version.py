@@ -26,8 +26,7 @@ def test_version_matches_pyproject():
 
 def test_user_agent_carries_the_real_version():
     expected = (
-        f"lobbywatch-mcp/{_pyproject_version()} "
-        "(+https://github.com/malkreide/lobbywatch-mcp)"
+        f"lobbywatch-mcp/{_pyproject_version()} (+https://github.com/malkreide/lobbywatch-mcp)"
     )
     assert config.USER_AGENT == expected
 
