@@ -211,7 +211,7 @@ Siehe [CHANGELOG.md](CHANGELOG.md).
 
 ## Lizenz
 
-MIT-Lizenz — siehe [LICENSE](LICENSE). Daten CC BY-SA 4.0 — siehe [LICENSE](LICENSE) § Data notice.
+MIT-Lizenz — siehe [LICENSE](LICENSE). Daten CC BY-SA 4.0 — siehe [NOTICE.md](NOTICE.md).
 
 ## Autor
 

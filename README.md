@@ -225,7 +225,7 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-MIT License — see [LICENSE](LICENSE). Data CC BY-SA 4.0 — see [LICENSE](LICENSE) § Data notice.
+MIT License — see [LICENSE](LICENSE). Data CC BY-SA 4.0 — see [NOTICE.md](NOTICE.md).
 
 ## Author
 
