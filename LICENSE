@@ -19,16 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-Data notice
------------
-
-This software accesses and redistributes data from Lobbywatch.ch, which is
-licensed under the Creative Commons Attribution-ShareAlike 4.0 International
-License (CC BY-SA 4.0): https://creativecommons.org/licenses/by-sa/4.0/
-
-Users of this software must comply with the CC BY-SA 4.0 terms for the data,
-independently of the MIT licence that covers the code. Every tool response
-produced by this server includes the required attribution string.
