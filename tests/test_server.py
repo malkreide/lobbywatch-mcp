@@ -1,22 +1,24 @@
-"""Tests for the FastMCP server tool implementations.
+"""Tests for the MCPServer server tool implementations.
 
-These tests exercise the tool functions via the FastMCP registry to catch
+These tests exercise the tool functions via the MCPServer registry to catch
 schema / projection regressions.
 """
 
 from __future__ import annotations
 
 import pytest
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 
 from lobbywatch_mcp.client import LobbywatchClient
 from lobbywatch_mcp.server import _coerce_upstream, build_server
 
 
 async def _call_tool(mcp, name: str, arguments: dict) -> dict:
-    """Invoke a registered FastMCP tool and return its structured-content dict."""
-    _content, structured = await mcp.call_tool(name, arguments)
-    return structured
+    """Invoke a registered MCPServer tool and return its structured-content dict."""
+    # mcp 2.x: call_tool returns a CallToolResult instead of the 1.x
+    # (content, structured) tuple.
+    result = await mcp.call_tool(name, arguments)
+    return result.structured_content
 
 
 async def test_get_parlamentarier_by_name(primed_client: LobbywatchClient) -> None:
@@ -67,7 +69,7 @@ async def test_ranking_by_ib_count(primed_client: LobbywatchClient) -> None:
 
 async def test_ranking_rejects_invalid_criterion(primed_client: LobbywatchClient) -> None:
     mcp = build_server(client=primed_client)
-    # ValueError raised in the tool surfaces as a FastMCP ToolError.
+    # ValueError raised in the tool surfaces as a MCPServer ToolError.
     try:
         await _call_tool(mcp, "lobbywatch_get_ranking", {"kriterium": "bogus"})
     except Exception as exc:
@@ -126,12 +128,12 @@ async def test_coerce_upstream_passes_through_value() -> None:
 
 
 async def test_coerce_upstream_converts_runtime_to_mcp_error() -> None:
-    """OBS-001: RuntimeError from upstream surfaces as McpError, not raw."""
+    """OBS-001: RuntimeError from upstream surfaces as MCPError, not raw."""
 
     async def boom() -> int:
         raise RuntimeError("upstream is down")
 
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         await _coerce_upstream(boom())
     # The original exception is preserved as __cause__.
     assert isinstance(exc_info.value.__cause__, RuntimeError)
@@ -139,15 +141,15 @@ async def test_coerce_upstream_converts_runtime_to_mcp_error() -> None:
 
 
 async def test_coerce_upstream_passes_through_mcp_error() -> None:
-    """OBS-001: an already-typed McpError must not be double-wrapped."""
+    """OBS-001: an already-typed MCPError must not be double-wrapped."""
     from mcp.types import INVALID_PARAMS, ErrorData
 
-    original = McpError(ErrorData(code=INVALID_PARAMS, message="bad arg"))
+    original = MCPError(code=INVALID_PARAMS, message="bad arg")
 
     async def already_typed() -> int:
         raise original
 
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         await _coerce_upstream(already_typed())
     assert exc_info.value is original
 
@@ -170,8 +172,8 @@ async def test_tools_have_typed_output_schema(primed_client: LobbywatchClient) -
     tools = await mcp.list_tools()
     untyped = []
     for t in tools:
-        schema = t.outputSchema or {}
-        # `additionalProperties: True` is the FastMCP marker for an unspecified
+        schema = t.output_schema or {}
+        # `additionalProperties: True` is the MCPServer marker for an unspecified
         # dict-typed return — what the audit flagged.
         if schema.get("additionalProperties") is True and "properties" not in schema:
             untyped.append(t.name)

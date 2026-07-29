@@ -12,7 +12,7 @@ Observability env vars (audit OBS-003, OBS-006):
 For HTTP/SSE deployments, optional CORS configuration via
 ``LOBBYWATCH_MCP_CORS_ORIGINS`` (comma-separated origin list, e.g.
 ``"https://app.example.ch,https://inspector.local"``). When set, a Starlette
-``CORSMiddleware`` wraps the FastMCP ASGI app and exposes ``Mcp-Session-Id``
+``CORSMiddleware`` wraps the MCPServer ASGI app and exposes ``Mcp-Session-Id``
 to browser clients (audit SDK-004). Without the env var no CORS headers are
 emitted — the safe default.
 """
