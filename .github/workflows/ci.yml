@@ -34,3 +34,6 @@ jobs:
 
       - name: Test (offline only)
         run: pytest -m "not live" -q
+
+      - name: Versions-Sync (pyproject ↔ server.json / README / src)
+        run: python scripts/check_version_sync.py
