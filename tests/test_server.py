@@ -142,7 +142,7 @@ async def test_coerce_upstream_converts_runtime_to_mcp_error() -> None:
 
 async def test_coerce_upstream_passes_through_mcp_error() -> None:
     """OBS-001: an already-typed MCPError must not be double-wrapped."""
-    from mcp.types import INVALID_PARAMS, ErrorData
+    from mcp.types import INVALID_PARAMS
 
     original = MCPError(code=INVALID_PARAMS, message="bad arg")
 

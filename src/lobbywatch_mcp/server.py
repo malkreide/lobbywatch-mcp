@@ -29,7 +29,7 @@ from typing import Annotated, Any, Literal, TypeVar
 import httpx
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.exceptions import MCPError
-from mcp.types import INTERNAL_ERROR, ErrorData, ToolAnnotations
+from mcp.types import INTERNAL_ERROR, ToolAnnotations
 from pydantic import Field
 
 from lobbywatch_mcp._observability import observed_tool
