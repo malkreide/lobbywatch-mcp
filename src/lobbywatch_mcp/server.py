@@ -1,4 +1,4 @@
-"""FastMCP server for the Lobbywatch.ch lobby database.
+"""MCPServer server for the Lobbywatch.ch lobby database.
 
 Phase 1 tools (No-Auth-First, CC BY-SA attributed). All tool names use the
 ``lobbywatch_`` namespace prefix to avoid collision with sibling portfolio
@@ -27,9 +27,9 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any, Literal, TypeVar
 
 import httpx
-from mcp.server.fastmcp import Context, FastMCP
-from mcp.shared.exceptions import McpError
-from mcp.types import INTERNAL_ERROR, ErrorData, ToolAnnotations
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.shared.exceptions import MCPError
+from mcp.types import INTERNAL_ERROR, ToolAnnotations
 from pydantic import Field
 
 from lobbywatch_mcp._observability import observed_tool
@@ -59,25 +59,23 @@ _T = TypeVar("_T")
 
 async def _coerce_upstream(coro: Awaitable[_T]) -> _T:
     """Run a client coroutine and convert internal/upstream failures into a
-    typed protocol-layer ``McpError`` (audit OBS-001).
+    typed protocol-layer ``MCPError`` (audit OBS-001).
 
-    FastMCP would otherwise auto-coerce any uncaught ``RuntimeError`` /
+    MCPServer would otherwise auto-coerce any uncaught ``RuntimeError`` /
     ``httpx.HTTPError`` into a generic INTERNAL_ERROR — surfacing the same
-    JSON-RPC code regardless of root cause. By raising ``McpError``
+    JSON-RPC code regardless of root cause. By raising ``MCPError``
     explicitly here we keep the categorisation intentional and log the
     underlying exception for operators.
     """
     try:
         return await coro
-    except McpError:
+    except MCPError:
         raise
     except (RuntimeError, httpx.HTTPError) as exc:
         logger.error("Lobbywatch upstream failure: %r", exc)
-        raise McpError(
-            ErrorData(
-                code=INTERNAL_ERROR,
-                message=f"Lobbywatch upstream error: {exc}",
-            )
+        raise MCPError(
+            code=INTERNAL_ERROR,
+            message=f"Lobbywatch upstream error: {exc}",
         ) from exc
 
 
@@ -177,8 +175,8 @@ _LimitSearch = Annotated[int, Field(ge=1, le=200)]
 _LimitRanking = Annotated[int, Field(ge=1, le=100)]
 
 
-def build_server(client: LobbywatchClient | None = None) -> FastMCP:
-    """Construct the FastMCP server with all Phase-1 tools registered.
+def build_server(client: LobbywatchClient | None = None) -> MCPServer:
+    """Construct the MCPServer server with all Phase-1 tools registered.
 
     The server uses an ``@asynccontextmanager`` lifespan (audit SDK-001) to
     own the :class:`LobbywatchClient` lifecycle. When a ``client`` is passed
@@ -192,7 +190,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
     server_owns_client = client is None
 
     @asynccontextmanager
-    async def lifespan(_server: FastMCP) -> AsyncIterator[dict[str, LobbywatchClient | None]]:
+    async def lifespan(_server: MCPServer) -> AsyncIterator[dict[str, LobbywatchClient | None]]:
         if state["client"] is None:
             state["client"] = LobbywatchClient()
         # Pin the protocolVersion at startup (audit ARCH-012). Importing
@@ -218,7 +216,7 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
                 await state["client"].aclose()
                 state["client"] = None
 
-    mcp: FastMCP = FastMCP(
+    mcp: MCPServer = MCPServer(
         name="lobbywatch-mcp",
         lifespan=lifespan,
         instructions=(
@@ -240,9 +238,9 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
         name="lobbywatch_get_parlamentarier",
         annotations=ToolAnnotations(
             title="Get parliamentarian profile",
-            readOnlyHint=True,
-            idempotentHint=True,
-            openWorldHint=False,
+            read_only_hint=True,
+            idempotent_hint=True,
+            open_world_hint=False,
         ),
     )
     async def get_parlamentarier(name_or_id: _NameOrId) -> ParlamentarierResponse:
@@ -287,9 +285,9 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
         name="lobbywatch_list_interessenbindungen",
         annotations=ToolAnnotations(
             title="List parliamentarian interessenbindungen",
-            readOnlyHint=True,
-            idempotentHint=True,
-            openWorldHint=False,
+            read_only_hint=True,
+            idempotent_hint=True,
+            open_world_hint=False,
         ),
     )
     async def list_interessenbindungen(
@@ -347,9 +345,9 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
         name="lobbywatch_search_parlamentarier_nach_branche",
         annotations=ToolAnnotations(
             title="Search parliamentarians by industry / commission",
-            readOnlyHint=True,
-            idempotentHint=True,
-            openWorldHint=False,
+            read_only_hint=True,
+            idempotent_hint=True,
+            open_world_hint=False,
         ),
     )
     async def search_parlamentarier_nach_branche(
@@ -437,9 +435,9 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
         name="lobbywatch_get_ranking",
         annotations=ToolAnnotations(
             title="Rank parliamentarians by criterion",
-            readOnlyHint=True,
-            idempotentHint=True,
-            openWorldHint=False,
+            read_only_hint=True,
+            idempotent_hint=True,
+            open_world_hint=False,
         ),
     )
     async def get_ranking(
@@ -493,9 +491,9 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
         name="lobbywatch_get_transparenzquote",
         annotations=ToolAnnotations(
             title="Compensation-transparency distribution",
-            readOnlyHint=True,
-            idempotentHint=True,
-            openWorldHint=False,
+            read_only_hint=True,
+            idempotent_hint=True,
+            open_world_hint=False,
         ),
     )
     async def get_transparenzquote(
@@ -545,9 +543,9 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
         name="lobbywatch_get_lobbygruppe",
         annotations=ToolAnnotations(
             title="Fetch lobby group (live dataIF)",
-            readOnlyHint=True,
-            idempotentHint=True,
-            openWorldHint=True,
+            read_only_hint=True,
+            idempotent_hint=True,
+            open_world_hint=True,
         ),
     )
     async def get_lobbygruppe(name_or_id: _NameOrId) -> LobbygruppeResponse:
@@ -591,10 +589,10 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
         name="lobbywatch_refresh_dump",
         annotations=ToolAnnotations(
             title="Force re-download of weekly dump",
-            readOnlyHint=False,
-            destructiveHint=False,
-            idempotentHint=True,
-            openWorldHint=True,
+            read_only_hint=False,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=True,
         ),
     )
     async def refresh_dump(ctx: Context) -> DumpStatusResponse:
@@ -623,9 +621,9 @@ def build_server(client: LobbywatchClient | None = None) -> FastMCP:
         name="lobbywatch_dump_status",
         annotations=ToolAnnotations(
             title="Dump cache status",
-            readOnlyHint=True,
-            idempotentHint=True,
-            openWorldHint=False,
+            read_only_hint=True,
+            idempotent_hint=True,
+            open_world_hint=False,
         ),
     )
     async def dump_status() -> DumpStatusResponse:
