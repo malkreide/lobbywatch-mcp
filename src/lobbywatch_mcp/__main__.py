@@ -35,6 +35,58 @@ def _parse_cors_origins() -> list[str]:
     return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 
+def _parse_allowed_hosts() -> list[str]:
+    """Hostnames this server is reachable under (SEC-005).
+
+    Needed once the bind is not loopback: the process cannot guess the service
+    or public DNS name it is addressed by.
+    """
+    raw = os.getenv("LOBBYWATCH_MCP_ALLOWED_HOSTS", "").strip()
+    if not raw:
+        return []
+    return [h.strip() for h in raw.split(",") if h.strip()]
+
+
+def build_transport_security(host: str, port: int):
+    """Host/Origin allow-list for the HTTP transports (SEC-005, inbound half).
+
+    Under mcp 2.x this is a per-app kwarg, and omitting it is *not* neutral: the
+    SDK derives a default from the app's ``host`` argument and auto-enables
+    ``127.0.0.1:*`` whenever that looks like loopback. Since ``host`` itself
+    defaults to ``127.0.0.1``, a server started with
+    ``LOBBYWATCH_MCP_HOST=0.0.0.0`` answered every request under a real hostname
+    with HTTP 421. Before the migration to 2.x, ``host`` reached the ``FastMCP``
+    constructor, where the same logic saw the real bind and left protection off.
+
+    Returns ``None`` when no allow-list is derivable — a non-loopback bind with
+    no ``LOBBYWATCH_MCP_ALLOWED_HOSTS``. A guessed list reproduces exactly that
+    421, so the caller warns instead.
+    """
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    loopback = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+    allowed = _parse_allowed_hosts()
+    if allowed:
+        # Loopback stays reachable for container health checks and debugging.
+        hosts = set(allowed) | loopback
+    elif host in ("127.0.0.1", "localhost", "::1"):
+        hosts = loopback | {f"{host}:{port}"}
+    else:
+        return None
+
+    # Configured CORS origins must also pass the transport check, or the server
+    # rejects exactly the browser clients CORS permits — a failure that only
+    # shows up in a browser. "*" is not expressible (origins are compared
+    # literally), so it is not copied across.
+    origins = {o for o in _parse_cors_origins() if o != "*"}
+    origins |= {f"http://{h}" for h in hosts}
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=sorted(hosts),
+        allowed_origins=sorted(origins),
+    )
+
+
 def _run_asgi(transport: str, host: str, port: int) -> None:
     """Run the streamable-http or sse ASGI app under uvicorn, optionally
     wrapped with CORSMiddleware (audit SDK-004).
@@ -42,10 +94,20 @@ def _run_asgi(transport: str, host: str, port: int) -> None:
     import uvicorn
 
     mcp = build_server()
+    security = build_transport_security(host, port)
+    if security is None:
+        logger.warning(
+            "DNS rebinding protection is OFF: the bind %s is not loopback and "
+            "LOBBYWATCH_MCP_ALLOWED_HOSTS is empty. Set it to the hostnames this "
+            "server is reachable under so Host and Origin are validated.",
+            host,
+        )
+    # `host` must be the address uvicorn actually binds: the SDK derives its
+    # allow-list from it, so leaving it at the default 421s a real deployment.
     if transport == "http":
-        app = mcp.streamable_http_app()
+        app = mcp.streamable_http_app(transport_security=security, host=host)
     else:
-        app = mcp.sse_app()
+        app = mcp.sse_app(transport_security=security, host=host)
 
     cors_origins = _parse_cors_origins()
     if cors_origins:
