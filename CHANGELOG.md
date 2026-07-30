@@ -8,6 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+
+- **HTTP- und SSE-Modus wiesen unter jedem echten Hostnamen mit 421 ab
+  (SEC-005).** `_run_asgi()` rief `streamable_http_app()` bzw. `sse_app()` ohne
+  `host` auf. Unter mcp 2.x ist das kein neutraler Default: das SDK leitet daraus
+  seine Host-Allow-List ab und aktiviert bei loopback-artigem Wert automatisch
+  `127.0.0.1:*`. Da das Argument selbst auf `127.0.0.1` defaultet, traf das jeden
+  Start mit `LOBBYWATCH_MCP_HOST=0.0.0.0`. Vor der Migration auf 2.x ging `host`
+  an den `FastMCP`-Konstruktor, wo dieselbe Logik den echten Bind sah und den
+  Schutz korrekt ausliess — die Migration verschob `host` auf einen App-Kwarg und
+  hörte auf, ihn zu übergeben.
+
+  Der Bind reist jetzt in die App, und eine echte Allow-List wird aus dem neuen
+  `LOBBYWATCH_MCP_ALLOWED_HOSTS` gebaut. Ohne diese Variable bleibt der Schutz auf
+  einem Nicht-Loopback-Bind bewusst aus und der Aufrufer warnt — eine geratene
+  Liste wäre genau der 421-Fall. Konfigurierte CORS-Origins werden mit
+  aufgenommen, sonst weist der Transport genau die Browser-Clients ab, die CORS
+  erlaubt.
+
+  13 neue Tests, darunter der tragende Fall „richtiger Hostname, falscher Port"
+  — nur er unterscheidet eine portgenaue Allow-List von einer, die alles
+  durchlässt. Ein weiterer prüft, dass App und uvicorn denselben Bind sehen,
+  sonst schützt die Allow-List eine andere Adresse als die gebundene.
+  Mutationsgetestet: nimmt man den `host`-Kwarg wieder weg, reproduziert der Test
+  das 421.
+
+  Geprüft mit den wörtlichen CI-Kommandos: 55 passed / 2 deselected,
+  `ruff check .` clean, `ruff format --check .` (55 files already formatted).
+
+
+### Fixed
 - **User-Agent no longer reports a stale version.** Three numbers had drifted
   apart: `pyproject.toml` said `0.3.4`, `__init__.__version__` said `0.1.0`, and
   `config.USER_AGENT` said `0.3.1` — the value Lobbywatch's server logs actually
