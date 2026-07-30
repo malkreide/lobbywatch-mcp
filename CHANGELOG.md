@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-07-30
+
 ### Fixed
 
 - **HTTP- und SSE-Modus wiesen unter jedem echten Hostnamen mit 421 ab
@@ -37,7 +39,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ruff check .` clean, `ruff format --check .` (55 files already formatted).
 
 
-### Fixed
 - **User-Agent no longer reports a stale version.** Three numbers had drifted
   apart: `pyproject.toml` said `0.3.4`, `__init__.__version__` said `0.1.0`, and
   `config.USER_AGENT` said `0.3.1` — the value Lobbywatch's server logs actually
