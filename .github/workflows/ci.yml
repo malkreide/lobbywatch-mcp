@@ -33,17 +33,24 @@ jobs:
           ruff format --check .
 
       # Der Schritt oben prüft nur die line-length dieses Repos (100).
-      # scripts/ wird aber zwischen den Portfolio-Repos kopiert, und dort
-      # steht line-length auf 88, 100, 110 oder 120. `ruff format` zieht
-      # einen Ausdruck zusammen, sobald er in die jeweilige Breite passt —
-      # eine Zeile über 88 Zeichen ist hier also formatgerecht und fällt
-      # im nächsten Repo um. Genau so ist der Check schon einmal rot
+      # check_version_sync.py wird aber zwischen den Portfolio-Repos kopiert,
+      # und dort steht line-length auf 88, 100, 110 oder 120. `ruff format`
+      # zieht einen Ausdruck zusammen, sobald er in die jeweilige Breite
+      # passt — eine Zeile über 88 Zeichen ist hier also formatgerecht und
+      # fällt im nächsten Repo um. Genau so ist der Check schon einmal rot
       # geworden, ohne dass am Skript etwas falsch gewesen wäre.
+      #
+      # Bewusst die einzelne Datei und nicht `scripts/`: Die Forderung gilt
+      # nur für portfolioweit kopierte Dateien. Ein Skript, das es nur hier
+      # gibt, hat keinen Grund, breitenunabhängig zu sein — es mitzuprüfen
+      # wäre ein Fehlalarm. In swiss-snb-mcp ist genau das passiert, wo
+      # `scripts/` ein zweites, lokales Skript enthält. Kommt hier ein
+      # weiteres geteiltes Skript dazu, gehört es in diese Liste.
       - name: Format-Stabilität der Portfolio-Skripte
         run: |
           for ll in 88 100 110 120; do
-            if ! ruff format --check --line-length "$ll" scripts/; then
-              echo "::error::scripts/ ist bei line-length $ll nicht formatgerecht. Die Dateien werden portfolioweit kopiert und müssen bei jeder genutzten Breite gleich formatiert sein — Begründung im Modul-Docstring."
+            if ! ruff format --check --line-length "$ll" scripts/check_version_sync.py; then
+              echo "::error file=scripts/check_version_sync.py::Nicht formatgerecht bei line-length $ll. Die Datei wird portfolioweit kopiert und muss bei jeder genutzten Breite gleich formatiert sein — Begründung im Modul-Docstring."
               exit 1
             fi
           done
