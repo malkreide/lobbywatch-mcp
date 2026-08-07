@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The retry had six defects, all inherited from the shared template.** This
+  server copied its retry from `reference/retry_backoff.py` in
+  [mcp-data-source-probe-skill](https://github.com/malkreide/mcp-data-source-probe-skill),
+  and the template shipped these until 2026-08-07. A sweep across eleven
+  servers found that none read `Retry-After` and none jittered — one template,
+  eleven copies, not eleven independent omissions.
+  1. **No jitter.** The ladder was deterministic, so every client that hit the
+     same outage retried in lockstep and the load returned as a wave exactly
+     when the source recovered — the retry storm extending the outage it was
+     meant to bridge. Now spread into `[0.5x, 1.5x]`.
+  2. **`Retry-After` was never read.** A 429 or 503 answers the very question
+     the backoff curve guesses at. Both RFC 9110 §10.2.3 forms are now read
+     (delta-seconds and HTTP-date); an unparseable header yields `None` and
+     falls back to the curve — it must never crash on the error path. The
+     jitter on top is one-sided `[1.0x, 1.25x]`: the source said *when*, so
+     later is polite and earlier ignores the value just read.
+  3. **No cap on a single wait**, and the cap now binds *after* the jitter.
+     `min(cap, base) * jitter` and `min(cap, base * jitter)` both contain a cap
+     and a jitter; only the second is bounded — 20s times 1.5 is 30s.
+  4. **The budget counted attempts, not seconds.** Four attempts against an
+     upstream that takes 30s to time out is two minutes inside one tool call,
+     and an attempt count never says so. Now 25s for the whole call, anchored
+     on the MCP SDK's `MCP_DEFAULT_TIMEOUT = 30.0`.
+  5. **Nothing held that budget.** It is now an `asyncio.timeout` wall-clock
+     deadline rather than an httpx timeout: httpx bounds each *operation*, and
+     its read timeout restarts with every chunk, so a slowly trickling response
+     outlived the budget without any single read expiring.
+  6. **The error was wrapped.** `raise RuntimeError("Lobbywatch dump
+     unreachable after retries")` — a bare `RuntimeError` a caller cannot tell
+     apart from a bug in this server's own code, and one that discards the type
+     and `.response` it could have branched on. The original exception is now
+     re-raised; type and host go to the log, where they cost the caller nothing.
+     `httpx.ConnectTimeout`, `ReadTimeout` and `ConnectError` all carry an
+     **empty** `str()` and are the only errors a real outage produces, so the
+     type is what carries the diagnosis. The one case with no original — budget
+     spent before a request went out — raises the named
+     `UpstreamUnavailableError`.
+
+  Four tests cover the new behaviour: `Retry-After` in both forms plus the
+  refusal cases (unparseable, empty, 500 instead of 429, a date in the past),
+  the jitter spread, that the cap binds after jittering, and that the
+  `Retry-After` jitter never lands earlier than the source asked for.
+
 ## [0.3.6] - 2026-08-02
 
 ### Fixed
