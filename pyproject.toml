@@ -49,7 +49,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "respx>=0.21",
-    "ruff>=0.5",
+    "ruff==0.16.1",
 ]
 # Observability extras (audit OBS-006). Pull in OpenTelemetry SDK + OTLP
 # exporter + httpx instrumentation only for cloud/HTTP deployments that
