@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Eine aufgezeichnete Antwort je externem Endpunkt**, in `tests/fixtures/`,
+  mit Herkunft, Aufnahmedatum, Auswahlregel und SHA-256 je Datei in
+  `tests/fixtures/PROVENANCE.md`. Neu aufzeichnen mit
+  `python scripts/record_fixtures.py`, geladen wird ueber
+  `tests/fixture_data.py`. Aufgezeichnet sind der woechentliche Dump
+  (`dump.zip`), der Tabellen-Endpunkt nach ID (`interessengruppe.json`) und die
+  Suche (`search.json`). Handgeschriebene Stubs kodieren die Annahme ihres
+  Autors und koennen sie nicht widerlegen — in `i14y-mcp` blieb genau deshalb
+  eine ganze Suite gruen, waehrend drei Tools produktiv leere Titel lieferten.
+  Fehlerpfade — 404, Timeouts, kaputte ZIPs — bleiben handgeschrieben.
+- **Befund vom 2026-08-14, datiert in `PROVENANCE.md`:** `search/default/`
+  antwortet mit HTTP 200, `success: true`, `count: 0` und `data: null` — fuer
+  jeden geprueften Begriff (Bildung, Verkehr, Economiesuisse, Umwelt,
+  Gewerkschaft). Der Pfad ist richtig; der Tabellen-Endpunkt nach ID antwortet
+  normal. Wirkung: `fetch_lobbygruppe` schlaegt einen **Namen** ueber die Suche
+  nach und liefert deshalb zurzeit fuer jeden Namen `None`; Abfragen ueber die
+  numerische ID sind nicht betroffen. Das ist der Stand der Quelle, kein Fehler
+  dieses Servers — `test_namenssuche_liefert_zurzeit_nichts` haelt die Wirkung
+  am echten Client fest. Liefert die Suche wieder Treffer, faellt der Test:
+  dann gehoert die Aufzeichnung erneuert und der Befund gestrichen.
+
 ### Changed
 
 - **Der Backoff-Schlaf wird ueber einen Modul-Alias gepatcht, nicht ueber
