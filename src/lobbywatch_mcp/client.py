@@ -40,6 +40,12 @@ from lobbywatch_mcp.config import (
     USER_AGENT,
 )
 
+# Eigener Alias, damit Tests die Wartezeit nullen koennen, ohne `asyncio.sleep`
+# prozessweit zu entschaerfen. `monkeypatch.setattr(<modul>.asyncio, "sleep", ...)`
+# sieht lokal aus, ersetzt `sleep` aber auf dem geteilten Modulobjekt — fuer
+# httpx, respx, pytest-asyncio und jeden anderen Importeur im Prozess.
+_sleep = asyncio.sleep
+
 logger = logging.getLogger(__name__)
 
 
@@ -283,7 +289,7 @@ class LobbywatchClient:
                     type(last_error).__name__ if last_error else "?",
                     delay,
                 )
-                await asyncio.sleep(delay)
+                await _sleep(delay)
 
             remaining = deadline - time.monotonic()
             if remaining <= 0:

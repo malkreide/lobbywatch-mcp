@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from pathlib import Path
@@ -106,7 +107,7 @@ async def test_dump_download_retries_on_503(
     async def _instant(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr(client_mod.asyncio, "sleep", _instant)
+    monkeypatch.setattr(client_mod, "_sleep", _instant)
 
     respx.get(DUMP_URL).mock(
         side_effect=[
@@ -186,3 +187,19 @@ def test_retry_after_jitter_is_one_sided() -> None:
     delays = {client_mod.compute_delay(1, _retry_after_error("4")) for _ in range(300)}
     assert min(delays) >= 4.0, "never earlier than the source asked for"
     assert max(delays) <= 5.0  # 4 * 1.25
+
+
+# --- Die Naht, und warum sie nicht `asyncio.sleep` ist -----------------------
+
+
+def test_der_retry_geht_ueber_den_alias():
+    """Sonst patchen die Tests eine Naht, die der Code gar nicht benutzt.
+
+    Umgeht das Modul den Alias, bleibt der Patch wirkungslos und die Suite
+    wartet die echte Backoff-Leiter ab. Kein Test faellt dabei — sie wird nur
+    um ein Vielfaches langsamer, und eine laengere Laufzeit ist kein Signal,
+    das jemand liest. Diese Zusicherung macht daraus einen Fehlschlag.
+    """
+    quelle = inspect.getsource(client_mod)
+    assert "await _sleep(" in quelle, "der Retry ruft den Modul-Alias nicht mehr auf"
+    assert "await asyncio.sleep(" not in quelle, "der Retry umgeht den Alias"
