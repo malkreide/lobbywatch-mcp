@@ -54,6 +54,10 @@ Gepinnt auf `ruff==0.16.1`, einzige Fundstelle: `pyproject.toml`,
 **Befund:** `.pre-commit-config.yaml` existiert nicht. Damit gibt es keine
 zweite Deklaration, die abweichen könnte — aber auch kein Gate vor dem Push.
 
+Keine zweite Version in die Workflows schreiben: ein solcher Schritt liefe
+nach dem dev-Install und überstimmte den Pin still.
+`tests/test_werkzeug_versionen.py` fällt dann.
+
 ### Gate-Befehle (wörtlich aus `.github/workflows/ci.yml`)
 
 ```bash
@@ -73,8 +77,16 @@ Matrix: Python 3.11 / 3.12 / 3.13.
 
 ### Live-Tests
 
-**Befund (DRIFT-005):** `tests/test_live.py` ist per `pytest -m "not live"`
-aus der CI ausgeschlossen, und es gibt keinen geplanten Lauf — die einzigen
-Workflows sind `ci.yml` (push/pull_request) und `publish.yml`, beide ohne
-`schedule`/`cron`. Die Live-Suite läuft also nur, wenn jemand sie von Hand
-startet. Ausgeschlossene Tests, die niemand ausführt, verrotten.
+**DRIFT-005 ist erfüllt.** `.github/workflows/live-tests.yml` fährt
+`tests/test_live.py` planmässig gegen `cms.lobbywatch.ch`: `cron: "33 4 * * 1"`
+plus `workflow_dispatch`, ein roter Lauf öffnet bzw. schliesst ein
+`upstream`-Issue. Die PR-CI schliesst dieselben Tests weiter per
+`-m "not live"` aus — das ist hier korrekt, weil der geplante Lauf existiert.
+`schedule` greift nur auf dem Default-Branch: Änderungen an der Datei wirken
+erst nach dem Merge, vorher von Hand auslösen.
+
+Hier stand das Gegenteil, und es war nach einem Tag falsch: Die CLAUDE.md
+entstand am 14.08.2026, `live-tests.yml` kam am 15.08.2026 dazu (`c4d1b3f`).
+Ein Befund in Prosa altert still — er wird nicht rot, wenn der Zustand sich
+ändert, und wer ihm folgt, baut einen zweiten Workflow für etwas, das es
+schon gibt.
