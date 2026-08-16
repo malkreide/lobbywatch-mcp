@@ -87,7 +87,17 @@ pytest -m "not live" -q
 python scripts/check_version_sync.py
 ```
 
-Matrix: Python 3.11 / 3.12 / 3.13.
+Matrix: Python 3.11 / 3.12 / 3.13, **mit `fail-fast: false`** — im Portfolio
+die Ausnahme. Eine rote 3.11 stoppt 3.12 und 3.13 hier also nicht, und das ist
+beim Einordnen der Unterschied zwischen «versionsabhängig» und «überall
+kaputt». Alle Gates laufen auf allen drei Feldern, keine `if:`-Ausnahme.
+
+**Die ruff-Gates fahren `.`, nicht Pfade** — anders als in den meisten
+Schwester-Servern, wo `src/ tests/ scripts/` steht. Der Umfang ist damit das
+ganze Repo; nachgemessen sind es 64 Dateien im Format-Gate. Kein `include`
+unter `[tool.ruff]` setzen: Bei einem `.`-Aufruf gibt es keine Pfadangabe im
+Befehl, die eine zu enge Einschränkung noch sichtbar machen könnte — sie
+wirkt ungebremst und still.
 
 ### Live-Tests
 
