@@ -78,6 +78,7 @@ schlägt den Pin, ohne dass der Install etwas meldet.
 ### Gate-Befehle (wörtlich aus `.github/workflows/ci.yml`)
 
 ```bash
+python scripts/check_ruff_pin.py
 ruff check .
 ruff format --check .
 
