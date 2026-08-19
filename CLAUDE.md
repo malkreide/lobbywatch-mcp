@@ -98,10 +98,14 @@ kaputt». Alle Gates laufen auf allen drei Feldern, keine `if:`-Ausnahme.
 
 **Die ruff-Gates fahren `.`, nicht Pfade** — anders als in den meisten
 Schwester-Servern, wo `src/ tests/ scripts/` steht. Der Umfang ist damit das
-ganze Repo; nachgemessen sind es 64 Dateien im Format-Gate. Kein `include`
-unter `[tool.ruff]` setzen: Bei einem `.`-Aufruf gibt es keine Pfadangabe im
-Befehl, die eine zu enge Einschränkung noch sichtbar machen könnte — sie
-wirkt ungebremst und still.
+ganze Repo; nachgemessen sind es 66 Dateien im Format-Gate (19.08.2026, mit
+`ruff==0.16.1`). Kein `include` unter `[tool.ruff]` setzen: Bei einem
+`.`-Aufruf gibt es keine Pfadangabe im Befehl, die eine zu enge
+Einschränkung noch sichtbar machen könnte — sie wirkt ungebremst und still.
+
+Die Zahl ist ein Momentwert, kein Gate: sie wächst mit jeder neuen
+Python-Datei und wird nicht rot, wenn sie veraltet. Vor dem Zitieren
+nachmessen (`ruff format --check .`), nicht aus diesem Absatz abschreiben.
 
 ### Live-Tests
 
