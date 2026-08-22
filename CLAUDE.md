@@ -140,7 +140,7 @@ wie der Code: Nichts ist rot, weil nichts geprüft wird, worauf es ankommt.
 
 ### ruff
 
-Gepinnt auf `ruff==0.16.1`, einzige Fundstelle: `pyproject.toml`,
+Gepinnt auf `ruff==0.16.3`, einzige Fundstelle: `pyproject.toml`,
 `[project.optional-dependencies].dev`. Die CI installiert daraus
 (`pip install -e ".[dev]"`), sie nennt keine eigene Version.
 
@@ -178,7 +178,7 @@ kaputt». Alle Gates laufen auf allen drei Feldern, keine `if:`-Ausnahme.
 **Die ruff-Gates fahren `.`, nicht Pfade** — anders als in den meisten
 Schwester-Servern, wo `src/ tests/ scripts/` steht. Der Umfang ist damit das
 ganze Repo; nachgemessen sind es 66 Dateien im Format-Gate (19.08.2026, mit
-`ruff==0.16.1`). Kein `include` unter `[tool.ruff]` setzen: Bei einem
+`ruff==0.16.3`). Kein `include` unter `[tool.ruff]` setzen: Bei einem
 `.`-Aufruf gibt es keine Pfadangabe im Befehl, die eine zu enge
 Einschränkung noch sichtbar machen könnte — sie wirkt ungebremst und still.
 
