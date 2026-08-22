@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Browser-Clients scheiterten am Preflight.** Spec `2026-07-28` routet eine
+  Anfrage über `Mcp-Method`, `Mcp-Name` und `Mcp-Protocol-Version`; die
+  CORS-Freigabeliste nannte keinen davon, dafür mit `Mcp-Session-Id` den Header
+  genau der Session-Mechanik, die dieselbe Revision abgeschafft hat. Ein
+  Browser darf einen nicht safelisteten Header nicht senden, wenn der Server
+  ihn nicht nennt: die Anfrage starb vor dem ersten MCP-Byte, während stdio und
+  Python weiterliefen. Deshalb war nichts rot.
+
+### Added
+
+- **`build_asgi_app()`**, herausgezogen aus `_run_asgi`, damit die CORS-Schicht
+  prüfbar ist. `_run_asgi` ruft sie auf; am Verhalten ändert sich nichts,
+  einschliesslich der Bedingung, dass CORS nur bei gesetzten Origins überhaupt
+  angehängt wird.
+
+- **Frischehinweise auf den auflistenden Methoden** (SEP-2549, Spec
+  `2026-07-28`): `tools/list`, `resources/list`, `resources/templates/list`,
+  `prompts/list` und `server/discover` antworten mit `ttlMs` 300000 und
+  `cacheScope` `public`. `resources/read` und `prompts/get` bleiben ohne
+  Hinweis: das wäre eine Zusicherung über den Inhalt statt über das Verzeichnis.
+
 ### Added
 
 - **Die Pruefsummen im Fixture-Nachweis waren Zierde.** `PROVENANCE.md` fuehrt

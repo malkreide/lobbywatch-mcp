@@ -27,6 +27,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any, Literal, TypeVar
 
 import httpx
+from mcp.server.caching import CacheableMethod, CacheHint
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.exceptions import MCPError
 from mcp.types import INTERNAL_ERROR, ToolAnnotations
@@ -175,6 +176,31 @@ _LimitSearch = Annotated[int, Field(ge=1, le=200)]
 _LimitRanking = Annotated[int, Field(ge=1, le=100)]
 
 
+# SEP-2549, Spec 2026-07-28: die auflistenden Methoden tragen `ttlMs` und
+# `cacheScope`. Das SDK setzt beides auf «sofort veraltet, nie geteilt» — ein
+# Server ohne `cache_hints` verhaelt sich also nicht neutral, sondern laesst
+# jeden Client bei jeder Verbindung neu auflisten, fuer Verzeichnisse, die beim
+# Aufbau des Servers feststehen.
+#
+# `public` folgt aus der Sache: die acht Tools, die Ressource und die Prompts
+# werden in `build_server()` registriert, es gibt keine Filterung nach Aufrufer.
+#
+# `resources/read` und `prompts/get` stehen bewusst nicht dabei: das waere eine
+# Zusicherung ueber den INHALT statt ueber das Verzeichnis.
+LIST_CACHE_TTL_MS = 300_000
+
+# Annotiert, nicht inferiert: `MCPServer` nimmt
+# `Mapping[CacheableMethod, CacheHint]`, und ein Dict-Literal ohne Annotation
+# inferiert mypy als `str`.
+CACHE_HINTS: dict[CacheableMethod, CacheHint] = {
+    "tools/list": CacheHint(ttl_ms=LIST_CACHE_TTL_MS, scope="public"),
+    "resources/list": CacheHint(ttl_ms=LIST_CACHE_TTL_MS, scope="public"),
+    "resources/templates/list": CacheHint(ttl_ms=LIST_CACHE_TTL_MS, scope="public"),
+    "prompts/list": CacheHint(ttl_ms=LIST_CACHE_TTL_MS, scope="public"),
+    "server/discover": CacheHint(ttl_ms=LIST_CACHE_TTL_MS, scope="public"),
+}
+
+
 def build_server(client: LobbywatchClient | None = None) -> MCPServer:
     """Construct the MCPServer server with all Phase-1 tools registered.
 
@@ -219,6 +245,7 @@ def build_server(client: LobbywatchClient | None = None) -> MCPServer:
     mcp: MCPServer = MCPServer(
         name="lobbywatch-mcp",
         lifespan=lifespan,
+        cache_hints=CACHE_HINTS,
         instructions=(
             "Lobbywatch.ch MCP server — conflicts of interest of Swiss parliamentarians. "
             "Data is community-researched, updated weekly, and licensed CC BY-SA 4.0. "
