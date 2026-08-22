@@ -87,12 +87,24 @@ def build_transport_security(host: str, port: int):
     )
 
 
-def _run_asgi(transport: str, host: str, port: int) -> None:
-    """Run the streamable-http or sse ASGI app under uvicorn, optionally
-    wrapped with CORSMiddleware (audit SDK-004).
-    """
-    import uvicorn
+# Die Header, nach denen Spec 2026-07-28 eine Anfrage routet — in der
+# Schreibweise des SDK (`mcp.shared.inbound`). Ein Browser darf einen nicht
+# safelisteten Header gar nicht erst senden, wenn der Server ihn nicht in
+# `Access-Control-Allow-Headers` nennt: ohne sie stirbt jede Cross-Origin-
+# Anfrage am Preflight, vor dem ersten MCP-Byte. stdio- und Python-Clients
+# kennen keinen Preflight und merken davon nichts — deshalb fiel es nicht auf.
+CORS_ROUTING_HEADERS = ["Mcp-Method", "Mcp-Name", "Mcp-Protocol-Version"]
 
+
+def build_asgi_app(transport: str, host: str = "127.0.0.1", port: int = 8000):
+    """Baut die ASGI-App samt optionaler CORS-Schicht, ohne einen Socket zu
+    binden.
+
+    Herausgezogen aus `_run_asgi`, damit die CORS-Schicht pruefbar ist: solange
+    Aufbau und `uvicorn.run` in derselben Funktion standen, liess sich die
+    Freigabeliste nur lesen, nicht ausprobieren — und eine gelesene Liste kann
+    vollstaendig aussehen und trotzdem nie an der Middleware ankommen.
+    """
     mcp = build_server()
     security = build_transport_security(host, port)
     if security is None:
@@ -117,14 +129,26 @@ def _run_asgi(transport: str, host: str, port: int) -> None:
             app,
             allow_origins=cors_origins,
             allow_methods=["GET", "POST", "OPTIONS"],
-            allow_headers=["Content-Type", "Mcp-Session-Id", "Authorization"],
+            allow_headers=[
+                "Content-Type",
+                *CORS_ROUTING_HEADERS,
+                "Mcp-Session-Id",
+                "Authorization",
+            ],
             expose_headers=["Mcp-Session-Id"],
             allow_credentials=False,
             max_age=600,
         )
         logger.info("CORS enabled for origins: %s", cors_origins)
 
-    uvicorn.run(app, host=host, port=port, log_config=None)
+    return app
+
+
+def _run_asgi(transport: str, host: str, port: int) -> None:
+    """Run the streamable-http or sse ASGI app under uvicorn (audit SDK-004)."""
+    import uvicorn
+
+    uvicorn.run(build_asgi_app(transport, host, port), host=host, port=port, log_config=None)
 
 
 def main() -> None:
