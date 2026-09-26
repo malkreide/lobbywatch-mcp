@@ -286,9 +286,11 @@ wie der Code: Nichts ist rot, weil nichts geprüft wird, worauf es ankommt.
 
 ### ruff
 
-Gepinnt auf `ruff==0.16.3`, einzige Fundstelle: `pyproject.toml`,
-`[project.optional-dependencies].dev`. Die CI installiert daraus
-(`pip install -e ".[dev]"`), sie nennt keine eigene Version.
+Exakt gepinnt, einzige Fundstelle: `pyproject.toml`,
+`[project.optional-dependencies].dev`. Die Version steht bewusst nicht hier:
+Diese Zeile nannte sie einmal und war beim Lesen längst überholt. Die CI
+installiert daraus (`pip install -e ".[dev]"`), sie nennt keine eigene
+Version.
 
 **Befund:** `.pre-commit-config.yaml` existiert nicht. Damit gibt es keine
 zweite Deklaration, die abweichen könnte — aber auch kein Gate vor dem Push.
