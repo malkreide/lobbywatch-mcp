@@ -58,9 +58,13 @@ Aenderung an Werkzeugnamen oder -schemas.
   aushandeln. Beide sind jetzt einzeln gepinnt, ein Dependabot-Bump von
   `mcp` kann keine davon still verschieben.
 
-  Ohne gemessenen Teil: dieser Server baut keine ASGI-App, durch die sich ein
-  `initialize` schicken liesse. Das Gate haengt deshalb an den SDK-Konstanten —
-  die schwaechere Form, im Docstring benannt statt verschwiegen.
+  Das Gate selbst haengt an den SDK-Konstanten — die schwaechere Form. Den
+  gemessenen Teil traegt `tests/test_spec_2026_07_28.py` (siehe «Spec 2026-07-28
+  nativ» oben): `server/discover` und `initialize` gehen dort durch
+  `build_asgi_app`. Hier stand bis nach dem Release, der Server baue keine
+  ASGI-App, durch die sich ein `initialize` schicken liesse — das war schon beim
+  Schreiben ueberholt, `build_asgi_app()` steht unter «Added» in derselben
+  Version.
 
   Beide READMEs beschreiben die Aeren; ein Test haelt jede Sprache einzeln
   dagegen — im Portfolio sind EN und DE desselben Repos schon dreimal
