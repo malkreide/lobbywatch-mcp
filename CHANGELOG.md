@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-09-27
+
+Protokoll-Release: Der Server spricht Spec `2026-07-28` jetzt nativ, und
+beide Protokoll-Aeren sind gemessen statt aus SDK-Konstanten gelesen. Keine
+Aenderung an Werkzeugnamen oder -schemas.
+
 ### Spec 2026-07-28 nativ
 
 - **`lobbywatch_refresh_dump` meldete modernen Clients nichts.** Der Fortschritt
@@ -29,29 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `build_asgi_app` und ruft jedes Werkzeug über eine `2026-07-28`-Verbindung
   auf. `MCPDeprecationWarning` ist in der Suite jetzt ein Fehler
   (`filterwarnings` in `pyproject.toml`).
-
-### Behoben
-
-- **`DELETE` fehlte in `allow_methods`.** Auf streamable-http beendet die
-  Methode eine Session ausdrücklich; der Preflight wies sie mit 400 ab. Ein
-  Browser-Client konnte damit Sessions öffnen, aber nie schliessen — sie liefen
-  erst am Timeout aus. Das SDK bedient sie sehr wohl: `_handle_delete_request`
-  in `mcp.server.streamable_http`, und dessen eigene 405-Antwort wirbt mit
-  `Allow: GET, POST, DELETE`. Die Freigabeliste war schmaler als der Server.
-
-  Gemessen vorher: `Preflight DELETE -> 400` bei
-  `Access-Control-Allow-Methods: GET, POST, OPTIONS`. Danach `200` und
-  `GET, POST, DELETE, OPTIONS`.
-
-### Fixed
-
-- **Browser-Clients scheiterten am Preflight.** Spec `2026-07-28` routet eine
-  Anfrage über `Mcp-Method`, `Mcp-Name` und `Mcp-Protocol-Version`; die
-  CORS-Freigabeliste nannte keinen davon, dafür mit `Mcp-Session-Id` den
-  Session-Header, der für sich genommen keine Anfrage routet. Ein Browser darf
-  einen nicht safelisteten Header nicht senden, wenn der Server ihn nicht
-  nennt: die Anfrage starb vor dem ersten MCP-Byte, während stdio und Python
-  weiterliefen. Deshalb war nichts rot.
 
 ### Added
 
@@ -100,8 +83,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   der Freigabeliste, faellt genau dieser eine Test, und die sieben bestehenden
   bleiben gruen.
 
-### Added
-
 - **Die Pruefsummen im Fixture-Nachweis waren Zierde.** `PROVENANCE.md` fuehrt
   je Datei einen SHA-256 — um genau einen Fall zu fangen: eine Aufzeichnung,
   die nach dem Lauf von Hand nachgebessert wurde. Eine korrigierte Antwort ist
@@ -145,6 +126,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Signal, das jemand liest.
 
 ### Fixed
+
+- **`DELETE` fehlte in `allow_methods`.** Auf streamable-http beendet die
+  Methode eine Session ausdrücklich; der Preflight wies sie mit 400 ab. Ein
+  Browser-Client konnte damit Sessions öffnen, aber nie schliessen — sie liefen
+  erst am Timeout aus. Das SDK bedient sie sehr wohl: `_handle_delete_request`
+  in `mcp.server.streamable_http`, und dessen eigene 405-Antwort wirbt mit
+  `Allow: GET, POST, DELETE`. Die Freigabeliste war schmaler als der Server.
+
+  Gemessen vorher: `Preflight DELETE -> 400` bei
+  `Access-Control-Allow-Methods: GET, POST, OPTIONS`. Danach `200` und
+  `GET, POST, DELETE, OPTIONS`.
+
+- **Browser-Clients scheiterten am Preflight.** Spec `2026-07-28` routet eine
+  Anfrage über `Mcp-Method`, `Mcp-Name` und `Mcp-Protocol-Version`; die
+  CORS-Freigabeliste nannte keinen davon, dafür mit `Mcp-Session-Id` den
+  Session-Header, der für sich genommen keine Anfrage routet. Ein Browser darf
+  einen nicht safelisteten Header nicht senden, wenn der Server ihn nicht
+  nennt: die Anfrage starb vor dem ersten MCP-Byte, während stdio und Python
+  weiterliefen. Deshalb war nichts rot.
 
 - **The retry had six defects, all inherited from the shared template.** This
   server copied its retry from `reference/retry_backoff.py` in
