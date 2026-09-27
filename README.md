@@ -233,9 +233,20 @@ other era is refused.
 Both revisions are pinned in
 [`tests/test_protocol_version.py`](tests/test_protocol_version.py) and asserted
 against the installed SDK, so a Dependabot bump of `mcp` cannot move either one
-silently. This server builds no ASGI app to send an `initialize` through, so
-the gate asserts the SDK constants rather than a measured response — the
-weaker form, named rather than left unsaid.
+silently. The constants alone are the weaker form, so
+[`tests/test_spec_2026_07_28.py`](tests/test_spec_2026_07_28.py) measures both
+eras through the assembled ASGI app: `server/discover` without a session, an
+`initialize` asking for a future revision capped at `2025-11-25`, and every
+tool called over a `2026-07-28` connection with SDK deprecations raised as
+errors.
+
+**Native to `2026-07-28`.** `lobbywatch_refresh_dump` reports its progress as
+`notifications/progress`, which both eras deliver to any client that sends a
+`progressToken`. It used to log via `notifications/message`; logging is
+deprecated in `2026-07-28` (SEP-2577) and only delivered on requests that opt
+in with a log level, so modern clients silently received nothing. `serverInfo`
+now carries the package version — under `2026-07-28` it is stamped into the
+`_meta` of every response.
 
 Note that the SDK's `LATEST_PROTOCOL_VERSION` is an alias for the **modern**
 era, not for the handshake era — pinning against it alone would leave the era

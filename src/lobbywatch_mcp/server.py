@@ -31,9 +31,11 @@ from mcp.server.caching import CacheableMethod, CacheHint
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.exceptions import MCPError
 from mcp.types import INTERNAL_ERROR, ToolAnnotations
+from mcp.types.version import LATEST_HANDSHAKE_VERSION, MODERN_PROTOCOL_VERSIONS
 from pydantic import Field
 
 from lobbywatch_mcp._observability import observed_tool
+from lobbywatch_mcp._version import PACKAGE_VERSION
 from lobbywatch_mcp.client import LobbywatchClient
 from lobbywatch_mcp.config import ATTRIBUTION
 from lobbywatch_mcp.models import (
@@ -219,22 +221,17 @@ def build_server(client: LobbywatchClient | None = None) -> MCPServer:
     async def lifespan(_server: MCPServer) -> AsyncIterator[dict[str, LobbywatchClient | None]]:
         if state["client"] is None:
             state["client"] = LobbywatchClient()
-        # Pin the protocolVersion at startup (audit ARCH-012). Importing
-        # here keeps the test path light when the constant moves between
-        # mcp SDK releases.
-        try:
-            from mcp.types import LATEST_PROTOCOL_VERSION
-
-            logger.info(
-                "lobbywatch-mcp ready: protocolVersion=%s, server_owns_client=%s",
-                LATEST_PROTOCOL_VERSION,
-                server_owns_client,
-            )
-        except ImportError:  # pragma: no cover — older mcp without the constant
-            logger.info(
-                "lobbywatch-mcp ready (protocolVersion unknown): server_owns_client=%s",
-                server_owns_client,
-            )
+        # Beide Aeren nennen (audit ARCH-012). Hier stand
+        # `protocolVersion=LATEST_PROTOCOL_VERSION`, also 2026-07-28 — auch
+        # fuer jeden Handshake-Client, der 2025-11-25 aushandelt. Die Version
+        # gilt pro Verbindung, nicht pro Prozess; beim Start steht nur fest,
+        # welche Spanne der Server bedient.
+        logger.info(
+            "lobbywatch-mcp ready: handshake<=%s, modern=%s, server_owns_client=%s",
+            LATEST_HANDSHAKE_VERSION,
+            ",".join(MODERN_PROTOCOL_VERSIONS),
+            server_owns_client,
+        )
         try:
             yield state
         finally:
@@ -244,6 +241,10 @@ def build_server(client: LobbywatchClient | None = None) -> MCPServer:
 
     mcp: MCPServer = MCPServer(
         name="lobbywatch-mcp",
+        # Ohne `version` stempelte der Server `serverInfo.version=""` — unter
+        # 2026-07-28 steht dieser Stempel im `_meta` jeder Antwort, nicht nur
+        # einmal im `initialize`.
+        version=PACKAGE_VERSION,
         lifespan=lifespan,
         cache_hints=CACHE_HINTS,
         instructions=(
@@ -635,12 +636,20 @@ def build_server(client: LobbywatchClient | None = None) -> MCPServer:
             - "I just heard about a new declaration — refresh and re-check"
         """
         async with observed_tool("lobbywatch_refresh_dump"):
-            await ctx.info("Refreshing Lobbywatch weekly dump...")
+            # `notifications/progress`, nicht `ctx.info()`: Logging ist seit
+            # Spec 2026-07-28 abgekuendigt (SEP-2577) und wird dort nur noch
+            # ausgeliefert, wenn die Anfrage per `_meta` einen Log-Level
+            # anfordert. Ohne dieses Opt-in verschluckte der Server beide
+            # Meldungen still. Progress gehoert in beiden Aeren zum Kern und
+            # erreicht jeden Client, der ein `progressToken` mitschickt.
+            await ctx.report_progress(0, 1, "Refreshing Lobbywatch weekly dump...")
             await _coerce_upstream(lb().ensure_dump_loaded(force=True))
             status = await lb().status()
-            await ctx.info(
+            await ctx.report_progress(
+                1,
+                1,
                 f"Dump refreshed: {status['record_count']} parliamentarians "
-                f"(cached at {status['cached_at']})"
+                f"(cached at {status['cached_at']})",
             )
             return DumpStatusResponse(provenance="weekly_dump", **status)
 

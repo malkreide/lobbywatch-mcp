@@ -219,9 +219,20 @@ aus der jeweils anderen Aera wird abgewiesen.
 Beide Revisionen sind in
 [`tests/test_protocol_version.py`](tests/test_protocol_version.py) gepinnt und
 werden gegen das installierte SDK geprueft; ein Dependabot-Bump von `mcp` kann
-also keine der beiden still verschieben. Dieser Server baut keine ASGI-App, durch die sich ein `initialize`
-schicken liesse; das Gate sichert deshalb die SDK-Konstanten statt einer
-gemessenen Antwort — die schwaechere Form, benannt statt verschwiegen.
+also keine der beiden still verschieben. Die Konstanten allein sind die
+schwaechere Form; [`tests/test_spec_2026_07_28.py`](tests/test_spec_2026_07_28.py)
+misst deshalb beide Aeren durch die zusammengebaute ASGI-App: `server/discover`
+ohne Session, ein `initialize` mit kuenftiger Revision, gedeckelt bei
+`2025-11-25`, und jedes Werkzeug ueber eine `2026-07-28`-Verbindung, mit
+SDK-Abkuendigungen als Fehler.
+
+**Nativ auf `2026-07-28`.** `lobbywatch_refresh_dump` meldet seinen Fortschritt
+als `notifications/progress`; beide Aeren liefern das an jeden Client, der ein
+`progressToken` mitschickt. Vorher lief die Meldung ueber `notifications/message`.
+Logging ist in `2026-07-28` abgekuendigt (SEP-2577) und wird nur noch auf
+Anfragen ausgeliefert, die per Log-Level zustimmen — moderne Clients bekamen
+still nichts. `serverInfo` traegt jetzt die Paketversion; unter `2026-07-28`
+steht dieser Stempel im `_meta` jeder Antwort.
 
 Zu beachten: `LATEST_PROTOCOL_VERSION` im SDK ist ein Alias auf die **moderne**
 Aera, nicht auf die Handshake-Aera — wer nur dagegen pinnt, laesst genau die

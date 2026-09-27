@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Spec 2026-07-28 nativ
+
+- **`lobbywatch_refresh_dump` meldete modernen Clients nichts.** Der Fortschritt
+  lief über `ctx.info()`, also `notifications/message`. Logging ist in
+  `2026-07-28` abgekündigt (SEP-2577) und wird nur noch auf Anfragen
+  ausgeliefert, die per `_meta` einen Log-Level anfordern. Gemessen vorher,
+  derselbe Aufruf mit `logging_callback`: legacy 2 Meldungen, `2026-07-28`
+  0 Meldungen — ohne Fehler, ohne Warnung beim Client. Jetzt
+  `ctx.report_progress()`, das in beiden Ären zum Kern gehört; über HTTP
+  kommen die beiden `notifications/progress` im SSE-Strom vor dem Resultat an.
+- **`serverInfo.version` war leer.** `MCPServer` bekam kein `version=`; unter
+  `2026-07-28` steht der Stempel im `_meta` jeder Antwort. Jetzt die
+  Paketversion.
+- **Startmeldung nannte eine Version, die nicht galt.** Sie loggte
+  `protocolVersion=2026-07-28` (`LATEST_PROTOCOL_VERSION`), auch für jeden
+  Handshake-Client, der `2025-11-25` aushandelt. Jetzt die bediente Spanne,
+  `handshake<=2025-11-25, modern=2026-07-28`.
+- **Gemessen statt aus Konstanten gelesen:** `tests/test_spec_2026_07_28.py`
+  schickt `server/discover`, `initialize` und `tools/call` durch
+  `build_asgi_app` und ruft jedes Werkzeug über eine `2026-07-28`-Verbindung
+  auf. `MCPDeprecationWarning` ist in der Suite jetzt ein Fehler
+  (`filterwarnings` in `pyproject.toml`).
+
 ### Behoben
 
 - **`DELETE` fehlte in `allow_methods`.** Auf streamable-http beendet die
