@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-10-14
+
+Robustheits-Release nach dem Ausfall von `cms.lobbywatch.ch` am 12.10.2026:
+Fällt die Quelle aus, antwortet der zwischengespeicherte Dump, und die Antwort
+sagt das. Neu ist das optionale Feld `stale` im Ausgabeschema der sechs
+Dump-Werkzeuge; Werkzeugnamen und Parameter bleiben unverändert.
+
 ### Added
 
 - **Stale-Cache-Fallback für den Wochen-Dump.** Am 12.10.2026 lieferte
@@ -28,16 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Ein beschädigtes Archiv zerstörte den Cache.** `_download_dump` öffnete
-  die Cache-Datei zum Schreiben (und leerte sie damit), bevor das
-  Archiv-Mitglied gelesen war. Ein Mitglied mit falscher CRC — etwa eine
-  Datei, die die Quelle gerade überschreibt — hinterliess einen leeren Cache
-  mit frischer mtime und einen rohen `BadZipFile`. Jetzt wird erst vollständig
-  gelesen, der Fehler als `UpstreamFormatError` gemeldet und der Cache atomar
-  über eine `.part`-Datei ersetzt.
-
-### Fixed
-
 - **Ein Dump, der kein ZIP ist, lief an der Fehlerkategorisierung vorbei.**
   Live-Lauf vom 12.10.2026 (Issue #74): `cms.lobbywatch.ch` lieferte HTTP 200
   mit einem Körper, der kein ZIP war, und im selben Moment für die
@@ -52,6 +49,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `fetch_lobbygruppe` gibt nur `data` weiter; am 12.10. blieb deshalb offen,
   ob die Quelle «0 record(s) found» meldete oder etwas anderes. Liefert der
   Test künftig nichts, fragt er nach und nennt `success` und `message`.
+- **Ein beschädigtes Archiv zerstörte den Cache.** `_download_dump` öffnete
+  die Cache-Datei zum Schreiben (und leerte sie damit), bevor das
+  Archiv-Mitglied gelesen war. Ein Mitglied mit falscher CRC — etwa eine
+  Datei, die die Quelle gerade überschreibt — hinterliess einen leeren Cache
+  mit frischer mtime und einen rohen `BadZipFile`. Jetzt wird erst vollständig
+  gelesen, der Fehler als `UpstreamFormatError` gemeldet und der Cache atomar
+  über eine `.part`-Datei ersetzt.
 
 ## [0.3.7] - 2026-09-27
 
