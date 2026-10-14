@@ -34,7 +34,17 @@ async def test_lobbygruppe_live_fetch():
     try:
         # ID 1 exists per the documented example.
         data = await client.fetch_lobbygruppe(1)
-        assert data is not None
+        if data is None:
+            # `fetch_lobbygruppe` gibt nur `data` weiter; was die Quelle sonst
+            # sagte, waere verloren (Lauf vom 12.10.2026). Eine Nachfrage —
+            # also eine zweite Antwort, nicht zwingend dieselbe.
+            envelope = await client.api_get("table/interessengruppe/aggregated/id/1")
+            pytest.fail(
+                "dataIF lieferte keine Daten fuer interessengruppe 1. Nachfrage: "
+                f"success={envelope.get('success')!r}, "
+                f"message={envelope.get('message')!r}, "
+                f"data={'leer' if envelope.get('data') is None else 'vorhanden'}"
+            )
         assert "anzeige_name" in data
     finally:
         await client.aclose()
