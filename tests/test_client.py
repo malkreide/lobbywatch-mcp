@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import inspect
+import io
+import json
+import os
+import time
+import zipfile
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from pathlib import Path
@@ -13,7 +18,8 @@ import respx
 
 import lobbywatch_mcp.client as client_mod
 from lobbywatch_mcp.client import LobbywatchClient, _is_forbidden_address, _ssrf_guard
-from lobbywatch_mcp.config import API_BASE, DUMP_URL
+from lobbywatch_mcp.config import API_BASE, DUMP_INNER_FILE, DUMP_URL
+from tests.conftest import FIXTURE_RECORDS
 
 
 @respx.mock
@@ -243,3 +249,196 @@ async def test_dump_ohne_zip_ist_ein_benannter_quellfehler(tmp_path: Path) -> No
     assert "Wartungsarbeiten" not in msg
     # Der Cache bleibt unberuehrt — kein halber Dump auf der Platte.
     assert not (tmp_path / "aggregated.json").exists()
+
+
+# --- Stale-Cache-Fallback ------------------------------------------------------
+# Scheitert die Aktualisierung, antwortet ein zwischengespeicherter Dump — aber
+# nur, wenn er jung genug ist, nur ohne `force`, und nie stillschweigend:
+# `stale_notice()` nennt Datenstand, Alter und Grund. Anlass war der Live-Lauf
+# vom 12.10.2026: Ein Dump vom Vortag lag auf der Platte, und trotzdem fiel
+# jede Abfrage zu Parlamentarierinnen und Parlamentariern aus.
+
+_TAG = 24 * 60 * 60
+
+
+def _zwischengespeichert(cache_dir: Path, alter_s: float) -> float:
+    """Legt einen Dump mit gesetztem Alter in den Cache; gibt seine mtime zurueck."""
+    path = cache_dir / "aggregated.json"
+    path.write_text(json.dumps(FIXTURE_RECORDS), encoding="utf-8")
+    mtime = time.time() - alter_s
+    os.utime(path, (mtime, mtime))
+    return mtime
+
+
+_AUSFAELLE = {
+    "kein_zip": httpx.Response(200, content=b"<html>Wartung</html>"),
+    "http_404": httpx.Response(404),
+    "verbindung": httpx.ConnectError("connection refused"),
+}
+
+
+@pytest.mark.parametrize("ausfall", sorted(_AUSFAELLE))
+@respx.mock
+async def test_zwischengespeicherter_dump_springt_ein(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ausfall: str
+) -> None:
+    async def _instant(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(client_mod, "_sleep", _instant)
+    respx.get(DUMP_URL).mock(side_effect=lambda _req: _antwort(ausfall))
+    mtime = _zwischengespeichert(tmp_path, 2 * _TAG)
+
+    client = LobbywatchClient(cache_dir=tmp_path)
+    await client.ensure_dump_loaded()
+    await client.aclose()
+
+    assert len(await client.all_parlamentarier()) == len(FIXTURE_RECORDS)
+    notice = client.stale_notice()
+    assert notice is not None
+    assert notice["cached_at"] == time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime))
+    assert abs(notice["age_seconds"] - 2 * _TAG) < 60
+    erwartet = {
+        "kein_zip": "UpstreamFormatError",
+        "http_404": "HTTPStatusError",
+        "verbindung": "ConnectError",
+    }[ausfall]
+    assert notice["reason"].startswith(erwartet)
+
+
+def _antwort(ausfall: str) -> httpx.Response:
+    antwort = _AUSFAELLE[ausfall]
+    if isinstance(antwort, Exception):
+        raise antwort
+    return antwort
+
+
+@respx.mock
+async def test_zu_alter_dump_springt_nicht_ein(tmp_path: Path) -> None:
+    respx.get(DUMP_URL).mock(return_value=httpx.Response(200, content=b"kein zip"))
+    _zwischengespeichert(tmp_path, 8 * _TAG)
+
+    client = LobbywatchClient(cache_dir=tmp_path, stale_max_seconds=7 * _TAG)
+    with pytest.raises(client_mod.UpstreamFormatError):
+        await client.ensure_dump_loaded()
+    await client.aclose()
+    assert client.stale_notice() is None
+
+
+@respx.mock
+async def test_null_schaltet_den_fallback_ab(tmp_path: Path) -> None:
+    respx.get(DUMP_URL).mock(return_value=httpx.Response(200, content=b"kein zip"))
+    _zwischengespeichert(tmp_path, 2 * _TAG)
+
+    client = LobbywatchClient(cache_dir=tmp_path, stale_max_seconds=0)
+    with pytest.raises(client_mod.UpstreamFormatError):
+        await client.ensure_dump_loaded()
+    await client.aclose()
+
+
+@respx.mock
+async def test_ausdrueckliches_refresh_faellt_nie_zurueck(tmp_path: Path) -> None:
+    """`lobbywatch_refresh_dump` meldete sonst einen Erfolg, den es nicht gab."""
+    respx.get(DUMP_URL).mock(return_value=httpx.Response(200, content=b"kein zip"))
+    _zwischengespeichert(tmp_path, 2 * _TAG)
+
+    client = LobbywatchClient(cache_dir=tmp_path)
+    with pytest.raises(client_mod.UpstreamFormatError):
+        await client.ensure_dump_loaded(force=True)
+    await client.aclose()
+    assert client.stale_notice() is None
+
+
+async def test_ssrf_sperre_wird_nicht_ueberdeckt(tmp_path: Path) -> None:
+    """Eine gesperrte Adresse ist kein Ausfall, den alte Daten verdecken duerfen."""
+    _zwischengespeichert(tmp_path, 2 * _TAG)
+    client = LobbywatchClient(cache_dir=tmp_path)
+
+    async def _gesperrt() -> None:
+        raise RuntimeError("Refusing to connect to cms.lobbywatch.ch")
+
+    client._download_dump = _gesperrt  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="Refusing"):
+        await client.ensure_dump_loaded()
+    await client.aclose()
+
+
+@respx.mock
+async def test_nach_dem_wartefenster_wird_die_quelle_erneut_gefragt(
+    tmp_path: Path, dump_zip_bytes: bytes
+) -> None:
+    route = respx.get(DUMP_URL).mock(
+        side_effect=[
+            httpx.Response(200, content=b"kein zip"),
+            httpx.Response(200, content=dump_zip_bytes),
+        ]
+    )
+    _zwischengespeichert(tmp_path, 2 * _TAG)
+    client = LobbywatchClient(cache_dir=tmp_path)
+
+    await client.ensure_dump_loaded()
+    assert client.stale_notice() is not None
+    assert route.call_count == 1
+
+    # Innerhalb des Fensters: kein neuer Versuch — jeder kostet bis zum ganzen
+    # Retry-Budget, und das zahlte sonst jede einzelne Abfrage.
+    await client.ensure_dump_loaded()
+    assert route.call_count == 1
+
+    # Fenster abgelaufen — nicht erst nach der vollen TTL von 24 h.
+    client._loaded_at -= client_mod.STALE_RETRY_SECONDS + 1  # type: ignore[operator]
+    await client.ensure_dump_loaded()
+    assert route.call_count == 2
+    assert client.stale_notice() is None
+    await client.aclose()
+
+
+@respx.mock
+async def test_frischer_dump_traegt_keinen_vermerk(tmp_path: Path, dump_zip_bytes: bytes) -> None:
+    respx.get(DUMP_URL).mock(return_value=httpx.Response(200, content=dump_zip_bytes))
+    client = LobbywatchClient(cache_dir=tmp_path)
+    await client.ensure_dump_loaded()
+    await client.aclose()
+    assert client.stale_notice() is None
+
+
+@respx.mock
+async def test_kaputtes_archiv_zerstoert_den_zwischenspeicher_nicht(tmp_path: Path) -> None:
+    """Intaktes Verzeichnis, beschaedigter Inhalt — etwa eine Datei, die die
+    Quelle gerade ueberschreibt. Der Cache wurde vor dem Lesen geleert, und
+    damit fehlte genau die Kopie, die einspringen soll."""
+    inner = json.dumps(FIXTURE_RECORDS).encode()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+        zf.writestr(DUMP_INNER_FILE, inner)
+    raw = bytearray(buf.getvalue())
+    raw[raw.find(inner[:40])] ^= 0xFF  # CRC passt nicht mehr
+    respx.get(DUMP_URL).mock(return_value=httpx.Response(200, content=bytes(raw)))
+    _zwischengespeichert(tmp_path, 2 * _TAG)
+    vorher = (tmp_path / "aggregated.json").read_bytes()
+
+    client = LobbywatchClient(cache_dir=tmp_path)
+    await client.ensure_dump_loaded()
+    await client.aclose()
+
+    assert (tmp_path / "aggregated.json").read_bytes() == vorher
+    notice = client.stale_notice()
+    assert notice is not None
+    assert notice["reason"].startswith("UpstreamFormatError")
+
+
+@respx.mock
+async def test_cache_wird_atomar_ersetzt(tmp_path: Path, dump_zip_bytes: bytes) -> None:
+    """Ein Absturz mitten im Schreiben laesst sonst einen abgeschnittenen Cache
+    zurueck, der nach seiner mtime frisch aussieht. Gemessen wird der Ersatz:
+    `replace` bringt einen neuen Inode, Schreiben an Ort und Stelle nicht."""
+    respx.get(DUMP_URL).mock(return_value=httpx.Response(200, content=dump_zip_bytes))
+    _zwischengespeichert(tmp_path, 2 * _TAG)
+    inode_vorher = (tmp_path / "aggregated.json").stat().st_ino
+
+    client = LobbywatchClient(cache_dir=tmp_path)
+    await client.ensure_dump_loaded()
+    await client.aclose()
+
+    assert (tmp_path / "aggregated.json").stat().st_ino != inode_vorher
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["aggregated.json"]

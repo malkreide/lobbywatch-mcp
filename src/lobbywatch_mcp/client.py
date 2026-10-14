@@ -22,6 +22,7 @@ import logging
 import random
 import time
 import zipfile
+import zlib
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -33,6 +34,7 @@ import httpx
 from lobbywatch_mcp.config import (
     API_BASE,
     CACHE_DIR,
+    CACHE_STALE_MAX_SECONDS,
     CACHE_TTL_SECONDS,
     DUMP_INNER_FILE,
     DUMP_URL,
@@ -99,6 +101,35 @@ class UpstreamFormatError(RuntimeError):
     failure. ``zipfile.BadZipFile`` derives straight from ``Exception`` and
     slipped past that helper (live run of 2026-10-12).
     """
+
+
+# --- Stale-cache fallback ----------------------------------------------------
+# What a failed refresh may fall back from: the source not answering, or not
+# answering in a form this client reads. Not a bare ``RuntimeError`` — the SSRF
+# guard raises one, and a blocked address is no outage for old data to cover.
+_REFRESH_FAILURES: tuple[type[Exception], ...] = (
+    httpx.HTTPError,
+    TimeoutError,
+    UpstreamUnavailableError,
+    UpstreamFormatError,
+)
+
+# While a stale copy answers, ask the source again after this long. Not on every
+# call — each failed attempt can cost the whole retry budget, and every query
+# would pay it — and not only after the full TTL, which would keep serving
+# yesterday's data for a day after the source is back.
+STALE_RETRY_SECONDS = 15 * 60
+
+
+def _describe_failure(exc: BaseException) -> str:
+    """One line naming a failed refresh. ``ConnectTimeout`` & co. carry an
+    empty ``str()``; the type is then all there is to say."""
+    text = str(exc).strip()
+    return f"{type(exc).__name__}: {text.splitlines()[0]}" if text else type(exc).__name__
+
+
+def _iso_utc(epoch: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
 
 
 def parse_retry_after(resp: httpx.Response | None) -> float | None:
@@ -228,13 +259,17 @@ class LobbywatchClient:
         cache_dir: Path | None = None,
         ttl_seconds: int = CACHE_TTL_SECONDS,
         http_client: httpx.AsyncClient | None = None,
+        stale_max_seconds: int = CACHE_STALE_MAX_SECONDS,
     ) -> None:
         self._cache_dir = cache_dir or CACHE_DIR
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._ttl = ttl_seconds
+        self._stale_max = stale_max_seconds
         self._dump_path = self._cache_dir / "aggregated.json"
         self._records: list[dict[str, Any]] | None = None
         self._loaded_at: float | None = None
+        # (reason, mtime of the cached copy) while a stale copy answers.
+        self._stale: tuple[str, float] | None = None
         self._lock = asyncio.Lock()
         self._http = http_client or httpx.AsyncClient(
             timeout=HTTP_TIMEOUT_SECONDS,
@@ -253,20 +288,71 @@ class LobbywatchClient:
     # ------------------------------------------------------------------
 
     async def ensure_dump_loaded(self, force: bool = False) -> None:
-        """Download, cache, and load the weekly JSON dump if needed."""
+        """Download, cache, and load the weekly JSON dump if needed.
+
+        If the refresh fails and the cached copy on disk is younger than
+        ``stale_max_seconds``, that copy answers instead and ``stale_notice()``
+        says so. ``force=True`` never falls back: an explicit refresh that did
+        not happen must not report success.
+        """
         async with self._lock:
             if not force and self._records is not None and self._is_fresh():
                 return
 
+            stale: tuple[str, float] | None = None
             if force or not self._dump_path.exists() or self._file_stale(self._dump_path):
-                await self._download_dump()
+                try:
+                    await self._download_dump()
+                except _REFRESH_FAILURES as exc:
+                    mtime = None if force else self._stale_copy_mtime()
+                    if mtime is None:
+                        raise
+                    stale = (_describe_failure(exc), mtime)
+                    logger.warning(
+                        "Dump refresh failed (%s); answering from the cached copy of %s",
+                        stale[0],
+                        _iso_utc(mtime),
+                    )
 
             self._records = self._parse_dump(self._dump_path)
             self._loaded_at = time.time()
+            self._stale = stale
             logger.info("Dump loaded: %d parliamentarians", len(self._records))
 
+    def _stale_copy_mtime(self) -> float | None:
+        """mtime of a cached dump still young enough to answer, else ``None``."""
+        try:
+            mtime = self._dump_path.stat().st_mtime
+        except OSError:
+            return None
+        age = time.time() - mtime
+        if age > self._stale_max:
+            logger.warning(
+                "Cached dump is %.0f h old, past the %.0f h fallback limit; not serving it",
+                age / 3600,
+                self._stale_max / 3600,
+            )
+            return None
+        return mtime
+
+    def stale_notice(self) -> dict[str, Any] | None:
+        """Set only while a stale cached copy answers: when it was downloaded,
+        how old it is, and why the refresh failed."""
+        if self._stale is None:
+            return None
+        reason, mtime = self._stale
+        return {
+            "cached_at": _iso_utc(mtime),
+            "age_seconds": int(time.time() - mtime),
+            "reason": reason,
+        }
+
     def _is_fresh(self) -> bool:
-        return self._loaded_at is not None and (time.time() - self._loaded_at) < self._ttl
+        if self._loaded_at is None:
+            return False
+        # A stale copy is held until the next attempt, not for a full TTL.
+        window = STALE_RETRY_SECONDS if self._stale is not None else self._ttl
+        return (time.time() - self._loaded_at) < window
 
     def _file_stale(self, path: Path) -> bool:
         try:
@@ -369,8 +455,23 @@ class LobbywatchClient:
                     logger.error("Dump archive members: %s", zf.namelist())
                     raise UpstreamFormatError("Lobbywatch dump format unexpected")
                 inner_name = candidates[0]
-            with zf.open(inner_name) as src, self._dump_path.open("wb") as dst:
-                dst.write(src.read())
+            # Read the whole member before touching the cache. Opening the
+            # cache for writing first truncated it, and a member that failed
+            # its CRC then destroyed the copy the stale fallback answers from.
+            try:
+                with zf.open(inner_name) as src:
+                    payload = src.read()
+            except (zipfile.BadZipFile, zlib.error, EOFError) as exc:
+                logger.error("Lobbywatch dump member %s unreadable: %s", inner_name, exc)
+                raise UpstreamFormatError(
+                    f"Lobbywatch dump member {inner_name!r} unreadable: {exc}"
+                ) from exc
+
+        # Atomic swap: a crash mid-write must not leave a truncated cache that
+        # looks fresh by its mtime.
+        tmp = self._dump_path.with_name(self._dump_path.name + ".part")
+        tmp.write_bytes(payload)
+        tmp.replace(self._dump_path)
 
     @staticmethod
     def _parse_dump(path: Path) -> list[dict[str, Any]]:

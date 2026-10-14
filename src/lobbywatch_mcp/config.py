@@ -28,6 +28,11 @@ API_BASE = "https://cms.lobbywatch.ch/de/data/interface/v1/json"
 # runs weekly on Monday morning, so 24 h is a pragmatic default.
 CACHE_TTL_SECONDS = int(os.getenv("LOBBYWATCH_MCP_CACHE_TTL", str(24 * 60 * 60)))
 
+# How old a cached dump may be and still answer when the refresh fails. Past
+# this, the failure surfaces instead of ever older data: a week covers an
+# outage without silently skipping a weekly release. 0 disables the fallback.
+CACHE_STALE_MAX_SECONDS = int(os.getenv("LOBBYWATCH_MCP_STALE_MAX_AGE", str(7 * 24 * 60 * 60)))
+
 # Directory where the downloaded dump is cached between runs.
 CACHE_DIR = Path(
     os.getenv("LOBBYWATCH_MCP_CACHE_DIR", str(Path.home() / ".cache" / "lobbywatch-mcp"))

@@ -38,6 +38,7 @@ Lobbywatch.ch maintains the largest public database on Swiss federal parliamenta
 ## Features
 
 - **Dump-first, API-fallback architecture.** The weekly JSON dump is the primary source (stable, verified in production); the live `dataIF` REST API is used only where it returns reliable data (lobby groups, search).
+- **Stale-cache fallback, never silent.** If the dump cannot be refreshed, a cached copy up to 7 days old answers instead, and every dump-backed response then carries a `stale` block with its download time, age and the reason the refresh failed. The source is retried every 15 minutes; `lobbywatch_refresh_dump` never falls back.
 - **Seven Phase 1 tools** — parliamentarian lookup, conflict-of-interest listing, branche search, lobby group fetch, rankings, transparency quota, cache control.
 - **CC BY-SA 4.0 attribution** baked into every response via Pydantic envelopes.
 - **Dual transport** — `stdio` for Claude Desktop, `streamable-http` / `sse` for cloud deployments.
@@ -164,6 +165,7 @@ All behaviour is controlled via environment variables:
 | `LOBBYWATCH_MCP_PORT` | `8000` | HTTP bind port |
 | `LOBBYWATCH_MCP_CACHE_DIR` | `~/.cache/lobbywatch-mcp` | Dump cache location |
 | `LOBBYWATCH_MCP_CACHE_TTL` | `86400` (24h) | Cache time-to-live in seconds |
+| `LOBBYWATCH_MCP_STALE_MAX_AGE` | `604800` (7 days) | Oldest cached dump that may answer when the refresh fails, in seconds; `0` disables the fallback |
 | `LOBBYWATCH_MCP_HTTP_TIMEOUT` | `60` | HTTP timeout in seconds |
 | `LOBBYWATCH_MCP_CORS_ORIGINS` | _(unset)_ | Comma-separated origin allow-list for HTTP/SSE; when set, exposes `Mcp-Session-Id` to browsers |
 | `LOBBYWATCH_MCP_LOG_FORMAT` | `text` | `text` (stdlib formatter) or `json` (structured via structlog) |

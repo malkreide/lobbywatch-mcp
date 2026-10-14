@@ -36,6 +36,7 @@ Lobbywatch.ch betreibt die grösste öffentliche Datenbank zu Schweizer Parlamen
 ## Funktionen
 
 - **Dump-first, API-Fallback.** Der wöchentliche JSON-Export ist die Primärquelle (stabil, live verifiziert); die `dataIF` REST-API wird nur dort genutzt, wo sie zuverlässig liefert (Lobbygruppen, Suche).
+- **Stale-Cache-Fallback, nie stillschweigend.** Lässt sich der Dump nicht aktualisieren, antwortet eine zwischengespeicherte Kopie von höchstens 7 Tagen. Jede Antwort aus dem Dump trägt dann einen Block `stale` mit Downloadzeitpunkt, Alter und dem Grund des Fehlschlags. Die Quelle wird alle 15 Minuten erneut versucht; `lobbywatch_refresh_dump` fällt nie zurück.
 - **Sieben Tools in Phase 1** — Profilabfrage, Interessenbindungen, Branchen-Suche, Lobbygruppen, Rankings, Transparenzquote, Cache-Steuerung.
 - **CC-BY-SA-4.0-Namensnennung** wird über Pydantic-Envelopes in jeder Antwort automatisch mitgeliefert.
 - **Duales Transportprotokoll** — `stdio` für Claude Desktop, `streamable-http` / `sse` für Cloud-Deployments.
@@ -150,6 +151,7 @@ Steuerung vollständig über Umgebungsvariablen:
 | `LOBBYWATCH_MCP_PORT` | `8000` | HTTP-Bind-Port |
 | `LOBBYWATCH_MCP_CACHE_DIR` | `~/.cache/lobbywatch-mcp` | Speicherort für gecachte Dumps |
 | `LOBBYWATCH_MCP_CACHE_TTL` | `86400` (24 h) | Cache-Gültigkeit in Sekunden |
+| `LOBBYWATCH_MCP_STALE_MAX_AGE` | `604800` (7 Tage) | Höchstalter eines zwischengespeicherten Dumps, der bei fehlgeschlagener Aktualisierung einspringen darf, in Sekunden; `0` schaltet den Fallback ab |
 | `LOBBYWATCH_MCP_HTTP_TIMEOUT` | `60` | HTTP-Timeout in Sekunden |
 | `LOBBYWATCH_MCP_CORS_ORIGINS` | _(unset)_ | Komma-getrennte Origin-Allow-List für HTTP/SSE; falls gesetzt, wird `Mcp-Session-Id` an Browser exponiert |
 | `LOBBYWATCH_MCP_LOG_FORMAT` | `text` | `text` (Standard-Logger) oder `json` (strukturiert via structlog) |
