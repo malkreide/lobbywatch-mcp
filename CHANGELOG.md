@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Ein Dump, der kein ZIP ist, lief an der Fehlerkategorisierung vorbei.**
+  Live-Lauf vom 12.10.2026 (Issue #74): `cms.lobbywatch.ch` lieferte HTTP 200
+  mit einem Körper, der kein ZIP war, und im selben Moment für die
+  existierende Interessengruppe 1 keine Daten. Am 14.10. antworteten beide
+  Endpunkte wieder normal, die Live-Suite war grün — ein Ausfall der Quelle,
+  kein geänderter Vertrag. Sichtbar wurde dabei: `zipfile.BadZipFile` erbt
+  direkt von `Exception` und entging `_coerce_upstream`, das nur
+  `RuntimeError` und `httpx.HTTPError` fängt. Jetzt `UpstreamFormatError`
+  (ein `RuntimeError`) mit Status, Content-Type, Bytezahl und Last-Modified —
+  nicht dem Antwortkörper, der ungeprüft ans Modell ginge.
+- **Die Live-Prüfung der Interessengruppe sagt, was die Quelle antwortete.**
+  `fetch_lobbygruppe` gibt nur `data` weiter; am 12.10. blieb deshalb offen,
+  ob die Quelle «0 record(s) found» meldete oder etwas anderes. Liefert der
+  Test künftig nichts, fragt er nach und nennt `success` und `message`.
+
 ## [0.3.7] - 2026-09-27
 
 Protokoll-Release: Der Server spricht Spec `2026-07-28` jetzt nativ, und

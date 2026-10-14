@@ -91,6 +91,16 @@ class UpstreamUnavailableError(Exception):
     """
 
 
+class UpstreamFormatError(RuntimeError):
+    """The source answered, but not in the form this client reads.
+
+    Named so a caller can branch on it, and a ``RuntimeError`` so that
+    ``server._coerce_upstream`` categorises it like every other upstream
+    failure. ``zipfile.BadZipFile`` derives straight from ``Exception`` and
+    slipped past that helper (live run of 2026-10-12).
+    """
+
+
 def parse_retry_after(resp: httpx.Response | None) -> float | None:
     """Seconds to wait per the response's ``Retry-After``, or ``None``.
 
@@ -331,7 +341,22 @@ class LobbywatchClient:
             )
             raise last_error
 
-        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(resp.content))
+        except zipfile.BadZipFile as exc:
+            # Status and headers, not the body: the message reaches the model
+            # unvetted, and what the source sent is told by its type and size.
+            detail = (
+                f"HTTP {resp.status_code}, "
+                f"Content-Type {resp.headers.get('content-type')!r}, "
+                f"{len(resp.content)} bytes, "
+                f"Last-Modified {resp.headers.get('last-modified')!r} "
+                f"(host={urlsplit(DUMP_URL).hostname})"
+            )
+            logger.error("Lobbywatch dump is not a ZIP archive: %s", detail)
+            raise UpstreamFormatError(f"Lobbywatch dump is not a ZIP archive: {detail}") from exc
+
+        with zf:
             # The dump contains a few files; we want the essential nested variant.
             inner_name = DUMP_INNER_FILE
             if inner_name not in zf.namelist():
@@ -342,7 +367,7 @@ class LobbywatchClient:
                 ]
                 if not candidates:
                     logger.error("Dump archive members: %s", zf.namelist())
-                    raise RuntimeError("Lobbywatch dump format unexpected")
+                    raise UpstreamFormatError("Lobbywatch dump format unexpected")
                 inner_name = candidates[0]
             with zf.open(inner_name) as src, self._dump_path.open("wb") as dst:
                 dst.write(src.read())

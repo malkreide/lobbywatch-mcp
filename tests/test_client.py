@@ -203,3 +203,43 @@ def test_der_retry_geht_ueber_den_alias():
     quelle = inspect.getsource(client_mod)
     assert "await _sleep(" in quelle, "der Retry ruft den Modul-Alias nicht mehr auf"
     assert "await asyncio.sleep(" not in quelle, "der Retry umgeht den Alias"
+
+
+# --- Die Quelle antwortet, aber nicht mit einem ZIP --------------------------
+# Live-Lauf vom 12.10.2026 (Issue #74): HTTP 200, `resp.content` kein ZIP, und
+# zur selben Sekunde lieferte der dataIF fuer eine existierende ID keine Daten.
+# Zwei Tage spaeter antworteten beide normal. Der rohe `zipfile.BadZipFile`
+# sagte nur «File is not a zip file» — was stattdessen kam, liess sich nicht
+# mehr feststellen.
+
+_KEIN_ZIP = b"<!DOCTYPE html><html><body>Wartungsarbeiten</body></html>"
+
+
+@respx.mock
+async def test_dump_ohne_zip_ist_ein_benannter_quellfehler(tmp_path: Path) -> None:
+    respx.get(DUMP_URL).mock(
+        return_value=httpx.Response(
+            200,
+            content=_KEIN_ZIP,
+            headers={
+                "Content-Type": "text/html; charset=utf-8",
+                "Last-Modified": "Mon, 12 Oct 2026 12:21:00 GMT",
+            },
+        )
+    )
+
+    client = LobbywatchClient(cache_dir=tmp_path)
+    with pytest.raises(client_mod.UpstreamFormatError) as exc_info:
+        await client.ensure_dump_loaded()
+    await client.aclose()
+
+    msg = str(exc_info.value)
+    # Was kam an — Status und Kopfzeilen, damit der naechste rote Lauf es sagt.
+    assert "HTTP 200" in msg
+    assert "text/html" in msg
+    assert f"{len(_KEIN_ZIP)} bytes" in msg
+    assert "Mon, 12 Oct 2026 12:21:00 GMT" in msg
+    # Den Status, nicht den Antwortkoerper: der geht ungeprueft ans Modell.
+    assert "Wartungsarbeiten" not in msg
+    # Der Cache bleibt unberuehrt — kein halber Dump auf der Platte.
+    assert not (tmp_path / "aggregated.json").exists()

@@ -6,10 +6,13 @@ schema / projection regressions.
 
 from __future__ import annotations
 
+import httpx
 import pytest
+import respx
 from mcp.shared.exceptions import MCPError
 
 from lobbywatch_mcp.client import LobbywatchClient
+from lobbywatch_mcp.config import DUMP_URL
 from lobbywatch_mcp.server import _coerce_upstream, build_server
 
 
@@ -193,3 +196,19 @@ async def test_resources_and_prompts_registered(
     prompt_names = {p.name for p in prompts}
     assert "lobbywatch_anchor_demo" in prompt_names
     assert "lobbywatch_top_lobbyists_by_party" in prompt_names
+
+
+@respx.mock
+async def test_coerce_upstream_faengt_dump_ohne_zip(tmp_path) -> None:
+    """OBS-001: Ein Dump, der kein ZIP ist, ist ein Quellfehler wie jeder andere.
+
+    `zipfile.BadZipFile` erbt direkt von `Exception` und lief deshalb an
+    `_coerce_upstream` vorbei — an der Kategorisierung, die dieser Helfer
+    absichtlich vornimmt (Live-Lauf vom 12.10.2026).
+    """
+    respx.get(DUMP_URL).mock(return_value=httpx.Response(200, content=b"<html>kein zip</html>"))
+    client = LobbywatchClient(cache_dir=tmp_path)
+    with pytest.raises(MCPError) as exc_info:
+        await _coerce_upstream(client.ensure_dump_loaded(force=True))
+    await client.aclose()
+    assert "Lobbywatch upstream error" in str(exc_info.value)
