@@ -6,6 +6,10 @@ schema / projection regressions.
 
 from __future__ import annotations
 
+import json
+import os
+import time
+
 import httpx
 import pytest
 import respx
@@ -14,6 +18,7 @@ from mcp.shared.exceptions import MCPError
 from lobbywatch_mcp.client import LobbywatchClient
 from lobbywatch_mcp.config import DUMP_URL
 from lobbywatch_mcp.server import _coerce_upstream, build_server
+from tests.conftest import FIXTURE_RECORDS
 
 
 async def _call_tool(mcp, name: str, arguments: dict) -> dict:
@@ -212,3 +217,54 @@ async def test_coerce_upstream_faengt_dump_ohne_zip(tmp_path) -> None:
         await _coerce_upstream(client.ensure_dump_loaded(force=True))
     await client.aclose()
     assert "Lobbywatch upstream error" in str(exc_info.value)
+
+
+# --- Stale-Cache-Fallback: sichtbar in jeder Antwort aus dem Dump -------------
+
+_DUMP_WERKZEUGE = [
+    ("lobbywatch_get_parlamentarier", {"name_or_id": "Mustermann"}),
+    ("lobbywatch_list_interessenbindungen", {"name_or_id": "Mustermann"}),
+    ("lobbywatch_search_parlamentarier_nach_branche", {"branche_query": "Bildung"}),
+    ("lobbywatch_get_ranking", {}),
+    ("lobbywatch_get_transparenzquote", {}),
+    ("lobbywatch_dump_status", {}),
+]
+
+
+@pytest.mark.parametrize(("werkzeug", "argumente"), _DUMP_WERKZEUGE)
+@respx.mock
+async def test_dump_antwort_nennt_veralteten_stand(
+    tmp_path, werkzeug: str, argumente: dict
+) -> None:
+    """Alte Daten duerfen antworten, aber nicht unbemerkt."""
+    respx.get(DUMP_URL).mock(return_value=httpx.Response(200, content=b"kein zip"))
+    path = tmp_path / "aggregated.json"
+    path.write_text(json.dumps(FIXTURE_RECORDS), encoding="utf-8")
+    mtime = time.time() - 2 * 24 * 60 * 60
+    os.utime(path, (mtime, mtime))
+    client = LobbywatchClient(cache_dir=tmp_path)
+    # `dump_status` laedt nichts selbst; der Stand entsteht beim ersten Zugriff.
+    await client.all_parlamentarier()
+
+    payload = await _call_tool(build_server(client=client), werkzeug, argumente)
+    await client.aclose()
+
+    assert payload["provenance"] == "weekly_dump"
+    assert payload["stale"]["reason"].startswith("UpstreamFormatError")
+    assert payload["stale"]["age_seconds"] >= 2 * 24 * 60 * 60
+
+
+@pytest.mark.parametrize(("werkzeug", "argumente"), _DUMP_WERKZEUGE)
+async def test_frische_dump_antwort_ohne_vermerk(
+    primed_client: LobbywatchClient, werkzeug: str, argumente: dict
+) -> None:
+    payload = await _call_tool(build_server(client=primed_client), werkzeug, argumente)
+    assert payload["stale"] is None
+
+
+async def test_live_antwort_kennt_kein_dump_feld(primed_client: LobbywatchClient) -> None:
+    """Der dataIF-Pfad hat mit dem Dump nichts zu tun; ein `stale` dort laese
+    sich wie eine Aussage ueber die Interessengruppe."""
+    tools = {t.name: t for t in await build_server(client=primed_client).list_tools()}
+    props = (tools["lobbywatch_get_lobbygruppe"].output_schema or {}).get("properties", {})
+    assert "stale" not in props

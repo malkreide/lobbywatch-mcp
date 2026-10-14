@@ -260,6 +260,12 @@ def build_server(client: LobbywatchClient | None = None) -> MCPServer:
             raise RuntimeError("LobbywatchClient not initialised; lifespan not started")
         return c
 
+    def _dump_envelope() -> dict[str, Any]:
+        """Provenance for a dump-backed answer, plus the stale notice when an
+        older cached copy answered. Read after the data access: that is where
+        the refresh was attempted."""
+        return {"provenance": "weekly_dump", "stale": lb().stale_notice()}
+
     # -------- parlamentarier --------
 
     @mcp.tool(
@@ -293,7 +299,7 @@ def build_server(client: LobbywatchClient | None = None) -> MCPServer:
             if record is None:
                 suggestions = await _coerce_upstream(lb().find_candidates(str(name_or_id)))
                 return ParlamentarierResponse(
-                    provenance="weekly_dump",
+                    **_dump_envelope(),
                     parlamentarier=None,
                     suggestions=[
                         ParlamentarierSuggestion(
@@ -305,7 +311,7 @@ def build_server(client: LobbywatchClient | None = None) -> MCPServer:
                     ],
                 )
             return ParlamentarierResponse(
-                provenance="weekly_dump",
+                **_dump_envelope(),
                 parlamentarier=_detail_from_record(record),
             )
 
@@ -343,7 +349,7 @@ def build_server(client: LobbywatchClient | None = None) -> MCPServer:
             if record is None:
                 suggestions = await _coerce_upstream(lb().find_candidates(str(name_or_id)))
                 return InteressenbindungenResponse(
-                    provenance="weekly_dump",
+                    **_dump_envelope(),
                     parlamentarier_id=-1,
                     count=0,
                     suggestions=[
@@ -363,7 +369,7 @@ def build_server(client: LobbywatchClient | None = None) -> MCPServer:
             if nur_aktiv:
                 ibs = [ib for ib in ibs if ib.aktiv is not False]
             return InteressenbindungenResponse(
-                provenance="weekly_dump",
+                **_dump_envelope(),
                 parlamentarier_id=int(record.get("id") or 0),
                 count=len(ibs),
                 interessenbindungen=ibs,
@@ -451,7 +457,7 @@ def build_server(client: LobbywatchClient | None = None) -> MCPServer:
                     break
 
             return BrancheSearchResponse(
-                provenance="weekly_dump",
+                **_dump_envelope(),
                 query=branche_query,
                 count=len(hits),
                 treffer=hits,
@@ -510,7 +516,7 @@ def build_server(client: LobbywatchClient | None = None) -> MCPServer:
                 for i, s in enumerate(top)
             ]
             return RankingResponse(
-                provenance="weekly_dump",
+                **_dump_envelope(),
                 kriterium=kriterium,
                 eintraege=eintraege,
             )
@@ -558,7 +564,7 @@ def build_server(client: LobbywatchClient | None = None) -> MCPServer:
             quote = (acceptable / total) if total else None
 
             return TransparenzResponse(
-                provenance="weekly_dump",
+                **_dump_envelope(),
                 scope=kommission or "all",
                 total=total,
                 nach_bewertung=buckets,
@@ -651,7 +657,7 @@ def build_server(client: LobbywatchClient | None = None) -> MCPServer:
                 f"Dump refreshed: {status['record_count']} parliamentarians "
                 f"(cached at {status['cached_at']})",
             )
-            return DumpStatusResponse(provenance="weekly_dump", **status)
+            return DumpStatusResponse(**_dump_envelope(), **status)
 
     @mcp.tool(
         name="lobbywatch_dump_status",
@@ -671,7 +677,7 @@ def build_server(client: LobbywatchClient | None = None) -> MCPServer:
         """
         async with observed_tool("lobbywatch_dump_status"):
             status = await lb().status()
-            return DumpStatusResponse(provenance="weekly_dump", **status)
+            return DumpStatusResponse(**_dump_envelope(), **status)
 
     # -------- resources & prompts (audit ARCH-008) --------
 

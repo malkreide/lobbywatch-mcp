@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Stale-Cache-Fallback für den Wochen-Dump.** Am 12.10.2026 lieferte
+  `cms.lobbywatch.ch` kurzzeitig keinen lesbaren Dump. Lag dabei eine Kopie
+  auf der Platte, die älter als die TTL von 24 h war, fiel trotzdem jede
+  Abfrage zu Parlamentarierinnen und Parlamentariern aus. Jetzt antwortet eine
+  zwischengespeicherte Kopie von höchstens `LOBBYWATCH_MCP_STALE_MAX_AGE`
+  (Vorgabe 7 Tage, `0` schaltet ab), und zwar nie stillschweigend: Jede
+  Antwort aus dem Dump trägt dann `stale` mit `cached_at`, `age_seconds` und
+  `reason`. Der dataIF-Pfad (`lobbywatch_get_lobbygruppe`) kennt das Feld
+  nicht, es wäre dort eine Aussage über etwas anderes.
+  - Die Quelle wird während des Fallbacks alle 15 Minuten erneut gefragt, nicht
+    bei jeder Abfrage (jeder Fehlversuch kann das ganze Retry-Budget von 25 s
+    kosten) und nicht erst nach 24 h.
+  - `lobbywatch_refresh_dump` fällt nie zurück: Ein ausdrückliches Refresh,
+    das nicht stattfand, darf keinen Erfolg melden.
+  - Eine SSRF-Sperre ist kein Ausfall und wird nicht überdeckt; nur
+    Netz-, Timeout- und Formatfehler der Quelle lösen den Fallback aus.
+
+### Fixed
+
+- **Ein beschädigtes Archiv zerstörte den Cache.** `_download_dump` öffnete
+  die Cache-Datei zum Schreiben (und leerte sie damit), bevor das
+  Archiv-Mitglied gelesen war. Ein Mitglied mit falscher CRC — etwa eine
+  Datei, die die Quelle gerade überschreibt — hinterliess einen leeren Cache
+  mit frischer mtime und einen rohen `BadZipFile`. Jetzt wird erst vollständig
+  gelesen, der Fehler als `UpstreamFormatError` gemeldet und der Cache atomar
+  über eine `.part`-Datei ersetzt.
+
 ### Fixed
 
 - **Ein Dump, der kein ZIP ist, lief an der Fehlerkategorisierung vorbei.**

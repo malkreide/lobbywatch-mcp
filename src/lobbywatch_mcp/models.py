@@ -22,6 +22,27 @@ class LobbywatchResponse(BaseModel):
     provenance: str = Field(description="Which endpoint / dump the payload came from")
 
 
+class StaleDump(BaseModel):
+    """The weekly dump could not be refreshed; an older cached copy answered."""
+
+    cached_at: str = Field(description="When the answering copy was downloaded (UTC, ISO 8601)")
+    age_seconds: int = Field(description="Age of the answering copy")
+    reason: str = Field(description="Why the refresh failed")
+
+
+class DumpResponse(LobbywatchResponse):
+    """Envelope for answers drawn from the weekly dump."""
+
+    stale: StaleDump | None = Field(
+        default=None,
+        description=(
+            "Set only when the dump could not be refreshed and an older cached "
+            "copy answered instead. The data may miss changes made since "
+            "`stale.cached_at` — say so when relaying it."
+        ),
+    )
+
+
 class Interessenbindung(BaseModel):
     """A single declared (or researched) conflict of interest of a parliamentarian."""
 
@@ -98,7 +119,7 @@ class RankingEntry(BaseModel):
     kriterium: str
 
 
-class RankingResponse(LobbywatchResponse):
+class RankingResponse(DumpResponse):
     kriterium: str
     eintraege: list[RankingEntry] = Field(default_factory=list)
 
@@ -116,7 +137,7 @@ class ParlamentarierSuggestion(BaseModel):
     score: int = Field(ge=0, le=100, description="rapidfuzz WRatio score (0-100)")
 
 
-class ParlamentarierResponse(LobbywatchResponse):
+class ParlamentarierResponse(DumpResponse):
     parlamentarier: ParlamentarierDetail | None = None
     suggestions: list[ParlamentarierSuggestion] = Field(
         default_factory=list,
@@ -124,7 +145,7 @@ class ParlamentarierResponse(LobbywatchResponse):
     )
 
 
-class InteressenbindungenResponse(LobbywatchResponse):
+class InteressenbindungenResponse(DumpResponse):
     parlamentarier_id: int
     count: int
     interessenbindungen: list[Interessenbindung] = Field(default_factory=list)
@@ -139,7 +160,7 @@ class BrancheSearchHit(BaseModel):
     interessenbindung: Interessenbindung
 
 
-class BrancheSearchResponse(LobbywatchResponse):
+class BrancheSearchResponse(DumpResponse):
     query: str
     count: int
     treffer: list[BrancheSearchHit] = Field(
@@ -152,14 +173,14 @@ class LobbygruppeResponse(LobbywatchResponse):
     lobbygruppe: Lobbygruppe | None = None
 
 
-class TransparenzResponse(LobbywatchResponse):
+class TransparenzResponse(DumpResponse):
     scope: str
     total: int
     nach_bewertung: dict[str, int] = Field(default_factory=dict)
     quote_ausreichend: float | None = None
 
 
-class DumpStatusResponse(LobbywatchResponse):
+class DumpStatusResponse(DumpResponse):
     loaded: bool
     cached_at: str | None = None
     age_seconds: int | None = None
